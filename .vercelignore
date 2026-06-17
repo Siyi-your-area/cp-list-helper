@@ -1,0 +1,23 @@
+node_modules/
+.next/
+.git/
+.puppeteer/
+
+# 按摊位拆分的文件（只保留 items.json 用于匹配）
+public/cpp/cp32/booths/
+
+# 原始爬虫数据
+data/
+cpp-cookies.json
+
+# 爬虫脚本
+scripts/crawl-cpp.mjs
+scripts/debug-*.mjs
+scripts/login-*.mjs
+scripts/qa-*.mjs
+scripts/quick-test.mjs
+
+# Debug 文件
+debug-*.html
+install.sh
+test-report.json

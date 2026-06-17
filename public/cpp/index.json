@@ -1,0 +1,11 @@
+{
+  "events": [
+    {
+      "id": "cp32",
+      "name": "CP32",
+      "dataPath": "/cpp/cp32",
+      "totalItems": 20000,
+      "totalBooths": 5428
+    }
+  ]
+}

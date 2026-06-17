@@ -1,0 +1,33 @@
+{
+  "name": "cp-list-helper",
+  "version": "1.0.0",
+  "description": "CP展会心愿单管理工具",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:cf": "next build && npx @cloudflare/next-on-pages",
+    "start": "next start",
+    "lint": "next lint",
+    "prepare:cpp": "node scripts/prepare-cpp-data.js",
+    "deploy:cf": "npm run build:cf && npx wrangler pages deploy .vercel/output/static"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "next": "14.2.5",
+    "puppeteer": "^25.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "^3.4.17",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.16",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.31",
+    "typescript": "latest",
+    "wrangler": "^4.100.0"
+  }
+}

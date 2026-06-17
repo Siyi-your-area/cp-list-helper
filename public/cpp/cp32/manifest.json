@@ -1,0 +1,17 @@
+{
+  "eventId": "cp32",
+  "eventName": "CP32",
+  "crawlDate": "2026-06-15T03:00:04.249Z",
+  "totalItems": 20000,
+  "totalBooths": 5428,
+  "days": [
+    {
+      "id": "7040",
+      "name": "一期"
+    },
+    {
+      "id": "7042",
+      "name": "二期"
+    }
+  ]
+}

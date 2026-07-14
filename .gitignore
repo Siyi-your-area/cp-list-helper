@@ -26,6 +26,12 @@ Thumbs.db
 debug-*.html
 install.sh
 
+# 爬取进度临时文件
+scripts/crawl-detail-progress.json
+
+# 构建产物
+tsconfig.tsbuildinfo
+
 # Puppeteer
 .puppeteer/
 .vercel

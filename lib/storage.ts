@@ -1,89 +1,87 @@
 /**
- * LocalStorage 封装
+ * Storage 层 — 统一从 Supabase 读写
  *
- * 提供类型安全的 CRUD 操作。
+ * 保持与之前相同的函数签名，页面代码无需大改。
  */
 
-import type { Exhibit } from "./types";
+import type { Exhibit, WishItem } from "./types";
+import {
+  getExhibitsFromDB,
+  createExhibitInDB,
+  deleteExhibitFromDB,
+  getWishItems,
+  createWishItem,
+  updateWishItem,
+  deleteWishItem,
+  batchUpdateWishItems,
+} from "./db-service";
 
-const STORAGE_KEY = "cp-exhibits";
+// ============================================================
+// 展会 CRUD（保持旧签名，内部改为 Supabase）
+// ============================================================
 
-/**
- * 获取所有展会
- */
 export function getExhibits(): Exhibit[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
+  // 同步版本返回空数组，页面用 getExhibitsAsync
+  return [];
 }
 
-/**
- * 保存所有展会
- */
-export function saveExhibits(exhibits: Exhibit[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(exhibits));
+export async function getExhibitsAsync(): Promise<Exhibit[]> {
+  return getExhibitsFromDB();
 }
 
-/**
- * 获取单个展会
- */
-export function getExhibit(id: string): Exhibit | null {
-  const exhibits = getExhibits();
-  return exhibits.find((e) => e.id === id) || null;
+export function createExhibit(name: string, _venue: string, date: string): Exhibit {
+  // 同步版本不再支持，页面用 createExhibitAsync
+  throw new Error("请使用 createExhibitAsync");
 }
 
-/**
- * 更新单个展会
- */
-export function updateExhibit(id: string, updates: Partial<Exhibit>): Exhibit | null {
-  const exhibits = getExhibits();
-  const index = exhibits.findIndex((e) => e.id === id);
-  if (index < 0) return null;
-
-  exhibits[index] = {
-    ...exhibits[index],
-    ...updates,
-    updatedAt: Date.now(),
-  };
-  saveExhibits(exhibits);
-  return exhibits[index];
-}
-
-/**
- * 创建展会
- */
-export function createExhibit(
+export async function createExhibitAsync(
+  id: string,
   name: string,
-  venue: string,
-  date: string
-): Exhibit {
-  const exhibit: Exhibit = {
-    id: Date.now().toString(),
-    name,
-    venue,
-    date,
-    items: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-
-  const exhibits = getExhibits();
-  exhibits.push(exhibit);
-  saveExhibits(exhibits);
-  return exhibit;
+  days: { id: string; name: string }[]
+): Promise<Exhibit> {
+  return createExhibitInDB(id, name, days);
 }
 
-/**
- * 删除展会
- */
 export function deleteExhibit(id: string): boolean {
-  const exhibits = getExhibits();
-  const filtered = exhibits.filter((e) => e.id !== id);
-  if (filtered.length === exhibits.length) return false;
-  saveExhibits(filtered);
-  return true;
+  // 同步版本不再支持
+  throw new Error("请使用 deleteExhibitAsync");
+}
+
+export async function deleteExhibitAsync(id: string): Promise<boolean> {
+  return deleteExhibitFromDB(id);
+}
+
+// ============================================================
+// 心愿单 CRUD
+// ============================================================
+
+export async function getWishItemsAsync(eventId: string): Promise<WishItem[]> {
+  return getWishItems(eventId);
+}
+
+export async function createWishItemAsync(
+  eventId: string,
+  item: Omit<WishItem, "id">
+): Promise<WishItem> {
+  return createWishItem(eventId, item);
+}
+
+export async function updateWishItemAsync(
+  eventId: string,
+  itemId: string,
+  updates: Partial<WishItem>
+): Promise<WishItem | null> {
+  return updateWishItem(eventId, itemId, updates);
+}
+
+export async function deleteWishItemAsync(eventId: string, itemId: string): Promise<boolean> {
+  return deleteWishItem(eventId, itemId);
+}
+
+export async function batchUpdateWishItemsAsync(
+  eventId: string,
+  itemIds: string[],
+  updates: Partial<WishItem>
+): Promise<void> {
+  return batchUpdateWishItems(eventId, itemIds, updates);
 }

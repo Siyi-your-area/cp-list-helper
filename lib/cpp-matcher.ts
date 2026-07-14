@@ -26,6 +26,21 @@ function normalize(str: string): string {
 }
 
 /**
+ * 拆分合并摊位号
+ *
+ * CPP 数据中部分摊位号是合并格式，如 "伍C21伍C22"、"陆G01陆G02"。
+ * 用户 Excel 中通常只写其中一个（如 "伍C21"），需要拆分后分别索引。
+ *
+ * 匹配模式：中文字符 + 可选字母 + 数字
+ */
+function splitBoothNumber(boothNumber: string): string[] {
+  if (!boothNumber) return [];
+  // 匹配：一个或多个中文字符 + 可选的大写字母 + 一个或多个数字
+  const parts = boothNumber.match(/[一-鿿]+[A-Z]?\d+/g);
+  return parts || [boothNumber];
+}
+
+/**
  * 计算两个字符串的相似度 (0-1)
  * 使用最长公共子序列的简化版本
  */
@@ -73,22 +88,35 @@ export class MatchIndex {
 
   private buildIndex() {
     for (const item of this.items) {
-      // 精确索引
-      const key = `${normalize(item.boothNumber)}|${normalize(item.productName)}`;
-      const existing = this.exactMap.get(key);
-      if (existing) {
-        existing.push(item);
-      } else {
-        this.exactMap.set(key, [item]);
+      // 精确索引：原始组合 + 拆分后的各部分
+      const normProduct = normalize(item.productName);
+      const boothParts = splitBoothNumber(item.boothNumber);
+      const boothKeys = new Set<string>();
+      boothKeys.add(normalize(item.boothNumber)); // 原始
+      for (const part of boothParts) {
+        boothKeys.add(normalize(part)); // 拆分后的每个部分
       }
 
-      // 摊位索引
-      const boothKey = normalize(item.boothNumber);
-      const boothItems = this.boothMap.get(boothKey);
-      if (boothItems) {
-        boothItems.push(item);
-      } else {
-        this.boothMap.set(boothKey, [item]);
+      for (const boothKey of boothKeys) {
+        const exactKey = `${boothKey}|${normProduct}`;
+        const existing = this.exactMap.get(exactKey);
+        if (existing) {
+          if (!existing.includes(item)) {
+            existing.push(item);
+          }
+        } else {
+          this.exactMap.set(exactKey, [item]);
+        }
+
+        // 摊位索引
+        const boothItems = this.boothMap.get(boothKey);
+        if (boothItems) {
+          if (!boothItems.includes(item)) {
+            boothItems.push(item);
+          }
+        } else {
+          this.boothMap.set(boothKey, [item]);
+        }
       }
     }
   }
@@ -242,12 +270,29 @@ export class MatchIndex {
 
 /**
  * 从原始 CPP 数据创建匹配索引（支持 raw 格式和 normalized 格式）
+ *
+ * 判断逻辑：有 doujinshiId → 已经是 normalized 格式（即使有 participationInfo）
+ * 否则 → 原始格式，需要从 participationInfo 展开
  */
 export function createMatchIndex(rawItems: any[]): MatchIndex {
-  // 检查是否已经是 normalized 格式（没有 participationInfo）
-  if (rawItems.length > 0 && rawItems[0].boothNumber && !rawItems[0].participationInfo) {
-    // 已经是 NormalizedCPPItem[]
-    return new MatchIndex(rawItems as NormalizedCPPItem[]);
+  // 检查是否已经是 normalized 格式
+  if (rawItems.length > 0 && (rawItems[0].doujinshiId || rawItems[0].doujinshi_id)) {
+    // 已经是 NormalizedCPPItem[]，直接使用
+    return new MatchIndex(rawItems.map((item: any) => ({
+      boothNumber: item.boothNumber || item.booth_number || "",
+      boothName: item.boothName || item.booth_name || "",
+      productName: item.productName || item.product_name || "",
+      author: item.author || "",
+      imageUrl: item.imageUrl || item.image_url || "",
+      tags: item.tags || [],
+      eventName: item.eventName || item.event_name || "",
+      sourceUrl: item.sourceUrl || item.source_url || "",
+      doujinshiId: item.doujinshiId || item.doujinshi_id || 0,
+      hotCount: item.hotCount || item.hot_count || 0,
+      originalWork: item.originalWork || item.original_work || "",
+      exchangeType: item.exchangeType || item.exchange_type || "",
+      description: item.description || "",
+    })));
   }
 
   const normalized: NormalizedCPPItem[] = [];
@@ -260,13 +305,17 @@ export function createMatchIndex(rawItems: any[]): MatchIndex {
       normalized.push({
         boothNumber: info.boothNumber || "",
         boothName: info.boothName || "",
-        productName: item.productName || "",
+        productName: item.doujinshiName || "",
         author: Array.isArray(item.authors) ? item.authors.join(", ") : "",
         imageUrl: item.imageUrl || item.pic || "",
         tags: item.tags || [],
         eventName: info.eventName || "",
         sourceUrl: item.sourceUrl || "",
         doujinshiId: item.doujinshiId || 0,
+        hotCount: item.hotCount || 0,
+        originalWork: item.themeAlias || "",
+        exchangeType: "",
+        description: "",
       });
     }
   }

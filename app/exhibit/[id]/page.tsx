@@ -19,110 +19,314 @@ import {
   ImageBroken,
   Trash,
   Plus,
+  Camera,
+  Copy,
+  CheckCircle,
 } from "@phosphor-icons/react";
-import * as XLSX from "xlsx";
-import type { WishItem, MatchResult } from "@/lib/types";
-import { STATUS_TEXT, STATUS_COLOR, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
-import { getExhibit, updateExhibit } from "@/lib/storage";
+import type { WishItem, MatchResult, MatchInput } from "@/lib/types";
+import { STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
 import { parseExcelFile } from "@/lib/excel-parser";
+import { useExhibitData } from "@/hooks/useExhibitData";
+import { MobileTableView } from "@/components/MobileTableView";
 
 const PAGE_SIZE = 100;
+
+/**
+ * 状态颜色 — 直接返回 Tailwind class（JIT 可检测）
+ * 待购买/待领取 → 淡蓝 | 已购买/已领取 → 淡绿 | 已售罄 → 淡红
+ */
+function getStatusColor(status: string): string {
+  switch (status) {
+    case "pending":
+    case "待领取":
+      return "bg-blue-100 text-blue-800";
+    case "purchased":
+    case "已领取":
+      return "bg-green-100 text-green-800";
+    case "soldout":
+      return "bg-red-100 text-red-800";
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
+}
+
+/**
+ * 从 CPP 匹配结果推断有料/无料
+ * 优先级：
+ * 1. tags 包含 "无料" → free
+ * 2. 商品名包含 "无料" → free
+ * 3. tags 包含 "有偿" → paid
+ * 4. 默认 paid
+ */
+function detectTypeFromCPP(result: MatchResult | undefined): "paid" | "free" {
+  if (!result?.cppItem) return "paid";
+
+  // 优先用交换状态判断（最准确）
+  const exchangeType = result.cppItem.exchangeType || "";
+  if (exchangeType.includes("无料")) return "free";
+  if (exchangeType.includes("有偿")) return "paid";
+
+  // 其次用标签判断
+  const tags = result.cppItem.tags || [];
+  if (tags.some((t) => t.includes("无料"))) return "free";
+  // 商品名中也检查
+  if (result.cppItem.productName.includes("无料")) return "free";
+  if (tags.some((t) => t.includes("有偿"))) return "paid";
+  return "paid";
+}
+
+async function imageUrlToExcelImage(
+  imageUrl: string
+): Promise<{ base64: string; extension: "png" | "jpeg" | "gif" } | null> {
+  try {
+    if (imageUrl.startsWith("data:image/")) {
+      const match = imageUrl.match(/^data:image\/(png|jpeg|jpg|gif);base64,/i);
+      const extension = match?.[1]?.toLowerCase() === "jpg" ? "jpeg" : match?.[1]?.toLowerCase();
+      if (extension === "png" || extension === "jpeg" || extension === "gif") {
+        return { base64: imageUrl, extension };
+      }
+      return null;
+    }
+
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+
+    const blob = await response.blob();
+    const mime = blob.type || "image/png";
+    const extension = mime.includes("jpeg") || mime.includes("jpg")
+      ? "jpeg"
+      : mime.includes("gif")
+        ? "gif"
+        : "png";
+
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+    return { base64, extension };
+  } catch {
+    return null;
+  }
+}
 
 export default function ExhibitDetail() {
   const params = useParams();
   const router = useRouter();
-  const [exhibit, setExhibit] = useState<any>(null);
+  const eventId = params.id as string;
+
+  const {
+    items,
+    eventInfo,
+    loading,
+    addItem,
+    updateItem,
+    removeItem,
+    addItems,
+    refresh,
+  } = useExhibitData(eventId);
+
   const [searchKeyword, setSearchKeyword] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isMatching, setIsMatching] = useState(false);
   const [matchStats, setMatchStats] = useState<any>(null);
+  const [uploadingItems, setUploadingItems] = useState(false);
+  const [desktopSortMode, setDesktopSortMode] = useState<"default" | "hot" | "priority">("default");
+  const [uploadResult, setUploadResult] = useState<{ imported: number; matched: number; skipped: number } | null>(null);
+  const [detailItem, setDetailItem] = useState<WishItem | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
+  // ---- 分享码 ----
+  const [shareCode, setShareCode] = useState("");
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
-    const found = getExhibit(params.id as string);
-    if (found) {
-      setExhibit(found);
-    } else {
-      alert("展会不存在");
-      router.push("/");
+    // 页面加载时获取/生成分享码
+    fetch(`/api/share?eventId=${eventId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.code && data.code !== "NEED_MIGRATION") {
+          setShareCode(data.code);
+        }
+      })
+      .catch(() => {}); // 静默失败
+  }, [eventId]);
+
+  const handleCopyShareCode = async () => {
+    if (!shareCode) return;
+    try {
+      await navigator.clipboard.writeText(shareCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+      const input = document.createElement("input");
+      input.value = shareCode;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-  }, [params.id, router]);
+  };
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchKeyword]);
 
+  useEffect(() => {
+    if (!editMode) {
+      setSelectedItemIds(new Set());
+    }
+  }, [editMode]);
+
   // ---- 操作函数 ----
 
-  const refreshExhibit = () => {
-    const updated = getExhibit(params.id as string);
-    if (updated) setExhibit(updated);
-  };
-
-  const handleDeleteItem = (id: string) => {
-    if (!exhibit) return;
+  const handleDeleteItem = async (id: string) => {
     if (!confirm("确定删除这一行吗？")) return;
-
-    const updated = updateExhibit(exhibit.id, {
-      items: exhibit.items.filter((item: WishItem) => item.id !== id),
+    await removeItem(id);
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
     });
-    if (updated) setExhibit(updated);
   };
 
-  const handleAddItem = () => {
-    if (!exhibit) return;
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selectedItemIds);
+    if (ids.length === 0) return;
+    if (!confirm(`确定删除选中的 ${ids.length} 行吗？`)) return;
 
-    const newItem: WishItem = {
-      id: `${Date.now()}`,
+    for (const id of ids) {
+      await removeItem(id);
+    }
+    setSelectedItemIds(new Set());
+  };
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectPage = () => {
+    const pageIds = paginatedItems.map((item) => item.id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedItemIds.has(id));
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      pageIds.forEach((id) => {
+        if (allSelected) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleAddItem = async () => {
+    await addItem({
       boothNumber: "",
       productName: "",
       author: "",
       venue: "",
       status: "pending",
       priority: "P1",
-    };
-
-    const updated = updateExhibit(exhibit.id, {
-      items: [...exhibit.items, newItem],
     });
-    if (updated) {
-      setExhibit(updated);
-      setTimeout(() => {
-        setCurrentPage(Math.ceil((exhibit.items.length + 1) / PAGE_SIZE));
-      }, 100);
+    setTimeout(() => {
+      setCurrentPage(Math.ceil((items.length + 1) / PAGE_SIZE));
+    }, 100);
+  };
+
+  const handleUpdateItem = async (id: string, field: keyof WishItem, value: any) => {
+    const updates: Partial<WishItem> = { [field]: value };
+    if (field === "type" && value === "free") {
+      updates.status = "待领取";
+      updates.price = undefined;
+    }
+    if (field === "type" && value === "paid") {
+      updates.status = "pending";
+    }
+    try {
+      await updateItem(id, updates);
+    } catch (error) {
+      console.error(`更新失败 [${field}=${value}]:`, error);
+      alert("更新失败: " + (error as Error).message);
     }
   };
 
-  const handleUpdateItem = (id: string, field: keyof WishItem, value: any) => {
-    if (!exhibit) return;
+  // ---- 图片上传 ----
 
-    const updatedItems = exhibit.items.map((item: WishItem) => {
-      if (item.id !== id) return item;
-      const updatedItem = { ...item, [field]: value };
-      if (field === "type" && value === "free") {
-        updatedItem.status = "待领取";
-        updatedItem.price = undefined;
-        updatedItem.actualPrice = undefined;
-        updatedItem.actualQuantity = undefined;
-      }
-      if (field === "type" && value === "paid") {
-        updatedItem.status = "pending";
-      }
-      return updatedItem;
-    });
-
-    const updated = updateExhibit(exhibit.id, { items: updatedItems });
-    if (updated) setExhibit(updated);
+  /**
+   * 将图片文件转为 base64 data URL 并存到对应条目
+   */
+  const handleImageFile = (itemId: string, file: File) => {
+    if (!file.type.startsWith("image/")) {
+      alert("请选择图片文件");
+      return;
+    }
+    // 限制大小 2MB（localStorage 有容量限制）
+    if (file.size > 2 * 1024 * 1024) {
+      alert("图片大小不能超过 2MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      handleUpdateItem(itemId, "imageUrl", dataUrl);
+    };
+    reader.readAsDataURL(file);
   };
+
+  /**
+   * 全局粘贴事件处理 —— 在编辑模式下粘贴图片直接上传到对应行
+   */
+  useEffect(() => {
+    if (!editMode) return;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      // 找到当前焦点所在的行
+      const activeElement = document.activeElement;
+      const row = activeElement?.closest("tr");
+      const itemId = row?.getAttribute("data-item-id");
+      if (!itemId) return;
+
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) handleImageFile(itemId, file);
+          break;
+        }
+      }
+    };
+
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [editMode, items]);
 
   // ---- Excel 上传 + 自动匹配 ----
 
   const handleUploadExcel = async (file: File) => {
-    if (!exhibit) return;
-
     try {
+      setUploadResult(null);
       // 1. 解析 Excel
       const inputs = await parseExcelFile(file);
       if (inputs.length === 0) {
@@ -130,7 +334,28 @@ export default function ExhibitDetail() {
         return;
       }
 
-      // 2. 调用 API 匹配
+      // 2. 去重
+      const existingKeys = new Set(
+        items.map((item) => `${item.boothNumber.trim()}|${item.productName.trim()}`)
+      );
+
+      const dedupedInputs: (MatchInput & { _skipped?: boolean })[] = inputs.map((input) => {
+        const key = `${input.boothNumber.trim()}|${input.productName.trim()}`;
+        if (existingKeys.has(key)) return { ...input, _skipped: true };
+        return input;
+      });
+
+      const skippedCount = dedupedInputs.filter((d) => d._skipped).length;
+      const newInputs = dedupedInputs.filter((d) => !d._skipped);
+
+      if (newInputs.length === 0) {
+        alert(`导入的 ${inputs.length} 条数据已全部存在，无需重复添加`);
+        setIsUploadModalOpen(false);
+        return;
+      }
+
+      // 3. 显示全局 Loading 并调用 API 匹配
+      setUploadingItems(true);
       setIsMatching(true);
       setMatchStats(null);
 
@@ -139,63 +364,51 @@ export default function ExhibitDetail() {
         const response = await fetch("/api/cpp/match", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: inputs }),
+          body: JSON.stringify({ items: newInputs, eventId }),
         });
         const data = await response.json();
         results = data.results || [];
         setMatchStats(data.stats);
       } catch (err) {
         console.warn("API 匹配失败，使用无匹配模式:", err);
-        results = inputs.map(() => ({
-          matched: false,
-          confidence: "none" as const,
-          reason: "匹配服务不可用",
-        }));
+        results = newInputs.map(() => ({ matched: false, confidence: "none" as const, reason: "匹配服务不可用" }));
       }
       setIsMatching(false);
 
-      // 3. 构建心愿单条目
-      const items: WishItem[] = inputs.map((input, index) => {
+      // 4. 构建心愿单条目并批量保存
+      const newItems: Omit<WishItem, "id">[] = newInputs.map((input, index) => {
         const result = results[index];
-        const venue = input.boothNumber.charAt(0) || "";
-
-        const item: WishItem = {
-          id: `${Date.now()}-${index}`,
+        const type = detectTypeFromCPP(result);
+        return {
           boothNumber: input.boothNumber,
           productName: input.productName,
-          author: input.author || "",
-          imageUrl: "",
-          venue,
-          status: "pending",
-          matchConfidence: result?.confidence || "none",
+          author: input.author || result?.cppItem?.author || "",
+          imageUrl: result?.cppItem?.imageUrl || "",
+          venue: input.boothNumber.charAt(0) || "",
+          type,
+          status: type === "free" ? "待领取" : "pending",
+          hotCount: result?.cppItem?.hotCount || 0,
+          description: result?.cppItem?.description || "",
+          matchedCPPItem: result?.cppItem,
+          matchConfidence: result?.confidence,
         };
-
-        // 如果匹配成功，填充 CPP 数据
-        if (result?.matched && result.cppItem) {
-          item.author = input.author || result.cppItem.author || "";
-          item.imageUrl = result.cppItem.imageUrl || "";
-          item.matchedCPPItem = result.cppItem;
-        }
-
-        return item;
       });
 
-      // 4. 保存到 localStorage
-      const updated = updateExhibit(exhibit.id, {
-        items: [...exhibit.items, ...items],
-      });
-      if (updated) setExhibit(updated);
+      await addItems(newItems);
+
+      // 5. Loading 完成，关闭弹窗
+      setUploadingItems(false);
 
       const matchedCount = results.filter((r) => r.matched).length;
-      alert(
-        `导入 ${items.length} 件展品\n` +
-        `匹配成功 ${matchedCount} 件（精确 ${results.filter(r => r.confidence === "exact").length}，` +
-        `模糊 ${results.filter(r => r.confidence !== "exact" && r.confidence !== "none").length}，` +
-        `未匹配 ${results.filter(r => !r.matched).length}）`
-      );
       setIsUploadModalOpen(false);
+      setUploadResult({
+        imported: newItems.length,
+        matched: matchedCount,
+        skipped: skippedCount,
+      });
     } catch (error) {
       setIsMatching(false);
+      setUploadingItems(false);
       alert("Excel 解析失败: " + (error as Error).message);
       console.error(error);
     }
@@ -203,40 +416,94 @@ export default function ExhibitDetail() {
 
   // ---- 导出 Excel ----
 
-  const handleExport = () => {
-    if (!exhibit) return;
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("心愿单");
 
-    const data = exhibit.items.map((item: WishItem) => ({
-      场馆: item.venue,
-      摊位号: item.boothNumber,
-      制品名称: item.productName,
-      作者: item.author,
-      图片: item.imageUrl,
-      优先级: item.priority,
-      开摊信息: item.openInfo,
-      类型: item.type === "paid" ? "有料" : item.type === "free" ? "无料" : "",
-      状态: STATUS_TEXT[item.status],
-      价格: item.price,
-      计划数量: item.quantity,
-      限购量: item.purchaseLimit,
-      实付金额: item.actualPrice,
-      实购数量: item.actualQuantity,
-      备注: item.note,
-      购买备注: item.purchaseNote,
-    }));
+      worksheet.columns = [
+        { header: "场馆", key: "venue", width: 8 },
+        { header: "摊位号", key: "boothNumber", width: 12 },
+        { header: "制品名称", key: "productName", width: 28 },
+        { header: "作者", key: "author", width: 18 },
+        { header: "图片", key: "image", width: 14 },
+        { header: "图片链接", key: "imageUrl", width: 32 },
+        { header: "优先级", key: "priority", width: 10 },
+        { header: "开摊信息", key: "openInfo", width: 18 },
+        { header: "类型", key: "type", width: 10 },
+        { header: "状态", key: "status", width: 12 },
+        { header: "单价", key: "price", width: 10 },
+        { header: "数量", key: "quantity", width: 8 },
+        { header: "实付", key: "total", width: 10 },
+        { header: "备注", key: "note", width: 18 },
+        { header: "详情", key: "description", width: 40 },
+      ];
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "心愿单");
-    XLSX.writeFile(wb, `${exhibit.name}_心愿单.xlsx`);
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).height = 22;
+
+      for (const item of items) {
+        const row = worksheet.addRow({
+          venue: item.venue,
+          boothNumber: item.boothNumber,
+          productName: item.productName,
+          author: item.author,
+          image: item.imageUrl ? "见图" : "",
+          imageUrl: item.imageUrl || "",
+          priority: item.priority,
+          openInfo: item.openInfo,
+          type: item.type === "paid" ? "有料" : item.type === "free" ? "无料" : "",
+          status: STATUS_TEXT[item.status],
+          price: item.price,
+          quantity: item.quantity,
+          total: item.price && item.quantity ? item.price * item.quantity : null,
+          note: item.note,
+          description: item.description,
+        });
+        row.height = 58;
+
+        if (item.imageUrl) {
+          const image = await imageUrlToExcelImage(item.imageUrl);
+          if (image) {
+            const imageId = workbook.addImage(image);
+            worksheet.addImage(imageId, {
+              tl: { col: 4.15, row: row.number - 0.85 },
+              ext: { width: 48, height: 48 },
+            });
+          }
+        }
+      }
+
+      worksheet.eachRow((row) => {
+        row.alignment = { vertical: "middle", wrapText: true };
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${eventInfo?.name || eventId}_心愿单.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("导出失败:", error);
+      alert("导出失败: " + (error as Error).message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   // ---- 搜索 + 排序 + 分页 ----
 
   const groupedItems = useMemo(() => {
-    if (!exhibit) return {};
-
-    let filtered = exhibit.items as WishItem[];
+    let filtered = items;
 
     if (searchKeyword) {
       const keyword = searchKeyword.toLowerCase();
@@ -249,9 +516,28 @@ export default function ExhibitDetail() {
     }
 
     const sorted = [...filtered].sort((a, b) => {
-      const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
-      const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
-      return aP - bP;
+      const boothCompare = a.boothNumber.localeCompare(b.boothNumber, "zh-Hans-CN", {
+        numeric: true,
+        sensitivity: "base",
+      });
+
+      if (desktopSortMode === "hot") {
+        // 按热度排序（降序）
+        const aHot = a.hotCount || 0;
+        const bHot = b.hotCount || 0;
+        if (aHot !== bHot) return bHot - aHot;
+        return boothCompare;
+      }
+
+      if (desktopSortMode === "priority") {
+        const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
+        const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
+        if (aP !== bP) return aP - bP;
+        return boothCompare;
+      }
+
+      // 默认按摊位号排序
+      return boothCompare;
     });
 
     const grouped: Record<string, WishItem[]> = {};
@@ -262,7 +548,7 @@ export default function ExhibitDetail() {
     });
 
     return grouped;
-  }, [exhibit, searchKeyword]);
+  }, [items, searchKeyword, desktopSortMode]);
 
   const flattenedItems = useMemo(() => {
     const items: WishItem[] = [];
@@ -280,111 +566,169 @@ export default function ExhibitDetail() {
   const totalPages = Math.ceil(flattenedItems.length / PAGE_SIZE);
 
   const stats = useMemo(() => {
-    if (!exhibit) return { total: 0, purchased: 0, soldout: 0, pending: 0, free: 0, totalSpent: 0 };
-    const items = exhibit.items as WishItem[];
     return {
       total: items.length,
       purchased: items.filter((i) => i.status === "purchased").length,
       soldout: items.filter((i) => i.status === "soldout").length,
       pending: items.filter((i) => i.status === "pending" || i.status === "待领取").length,
       free: items.filter((i) => i.type === "free").length,
-      totalSpent: items.reduce((sum, i) => sum + (i.actualPrice || 0) * (i.actualQuantity || 0), 0),
+      totalSpent: items.reduce((sum, i) => {
+        // 已购买/已领取的才计入花费
+        if (i.status === "purchased" || i.status === "已领取") {
+          const price = i.price ?? 0;
+          const qty = i.quantity ?? 1;
+          return sum + price * qty;
+        }
+        return sum;
+      }, 0),
     };
-  }, [exhibit]);
+  }, [items]);
 
-  if (!exhibit) {
+  if (loading) {
     return <div className="min-h-screen flex items-center justify-center">加载中...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+      <header className="bg-white border-b border-slate-200 shrink-0">
+        <div className="max-w-7xl mx-auto px-3 py-3 sm:px-6 sm:py-4 lg:px-8">
           <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push("/")}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 flex items-center gap-1 text-sm"
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600"
               >
-                <ArrowLeft className="w-4 h-4" />
-                返回
+                <ArrowLeft className="w-5 h-5" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 font-display">{exhibit.name}</h1>
-                <p className="text-slate-500 text-sm">
-                  {exhibit.venue} · {exhibit.date}
-                </p>
+                <h1 className="text-lg sm:text-2xl font-bold text-slate-900 font-display">{eventInfo?.name || eventId}</h1>
+                <p className="text-slate-500 text-xs sm:text-sm">{eventInfo?.date || ""}</p>
               </div>
+              {/* 分享码 */}
+              {shareCode && (
+                <button
+                  onClick={handleCopyShareCode}
+                  className="ml-2 flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors group"
+                  title="点击复制邀请码"
+                >
+                  <span className="text-sm font-mono font-bold text-amber-700 tracking-wider">{shareCode}</span>
+                  {copied ? (
+                    <CheckCircle className="w-3.5 h-3.5 text-green-600" weight="bold" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-amber-500 group-hover:text-amber-700" />
+                  )}
+                </button>
+              )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 onClick={() => setEditMode(!editMode)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-1.5 ${
+                className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium transition-colors text-xs sm:text-sm flex items-center gap-1 ${
                   editMode ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
                 {editMode ? <Check className="w-4 h-4" weight="bold" /> : <Pencil className="w-4 h-4" />}
-                {editMode ? "编辑中" : "编辑模式"}
+                <span className="hidden sm:inline">{editMode ? "编辑中" : "编辑模式"}</span>
               </button>
               <button
                 onClick={() => setIsUploadModalOpen(true)}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors text-sm flex items-center gap-1.5"
+                className="bg-indigo-600 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-indigo-700 transition-colors text-xs sm:text-sm flex items-center gap-1"
               >
                 <UploadSimple className="w-4 h-4" />
-                上传心愿单
+                <span className="hidden sm:inline">上传</span>
               </button>
               <button
                 onClick={handleExport}
-                className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors text-sm flex items-center gap-1.5"
+                disabled={exporting}
+                className="bg-emerald-600 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-emerald-700 transition-colors text-xs sm:text-sm flex items-center gap-1"
               >
                 <FileArrowDown className="w-4 h-4" />
-                导出Excel
+                <span className="hidden sm:inline">{exporting ? "导出中..." : "导出"}</span>
               </button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Stats */}
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <StatCard icon={Package} label="总展品" value={stats.total} color="slate" />
-          <StatCard icon={Clock} label="待购买/领取" value={stats.pending} color="amber" />
-          <StatCard icon={ShoppingBag} label="已购买" value={stats.purchased} color="emerald" />
-          <StatCard icon={Flame} label="已售罄" value={stats.soldout} color="rose" />
-          <StatCard icon={Gift} label="无料" value={stats.free} color="indigo" />
-          <StatCard icon={Wallet} label="总花费" value={`¥${stats.totalSpent.toFixed(2)}`} color="violet" />
-        </div>
+      {/* Main content area - fills remaining height */}
+      {/* 手机端视图 */}
+      <div className="md:hidden flex-1 min-h-0">
+        <MobileTableView
+          items={items}
+          onUpdateItem={handleUpdateItem}
+          onRemoveItem={handleDeleteItem}
+        />
       </div>
 
-      {/* Search */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative">
-          <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="搜索摊位号、制品名称、作者..."
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
-          />
-          {searchKeyword && (
+      {/* 桌面端视图 */}
+      <div className="hidden md:flex flex-1 min-h-0 flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Stats */}
+        <div className="shrink-0 pt-6 pb-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <StatCard icon={Package} label="总展品" value={stats.total} color="slate" />
+            <StatCard icon={Clock} label="待购买/领取" value={stats.pending} color="amber" />
+            <StatCard icon={ShoppingBag} label="已购买" value={stats.purchased} color="emerald" />
+            <StatCard icon={Flame} label="已售罄" value={stats.soldout} color="rose" />
+            <StatCard icon={Gift} label="无料" value={stats.free} color="indigo" />
+            <StatCard icon={Wallet} label="总花费" value={`¥${stats.totalSpent.toFixed(2)}`} color="violet" />
+          </div>
+        </div>
+
+        {/* Search + Sort */}
+        <div className="shrink-0 pb-3 flex gap-3">
+          <div className="flex-1 relative">
+            <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="搜索摊位号、制品名称、作者..."
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
+            />
+            {searchKeyword && (
+              <button
+                onClick={() => setSearchKeyword("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap">排序：</span>
             <button
-              onClick={() => setSearchKeyword("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={() => setDesktopSortMode((mode) => (mode === "priority" ? "default" : "priority"))}
+              className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                desktopSortMode === "priority"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
             >
-              <X className="w-4 h-4" />
+              按优先级排序
             </button>
-          )}
+            <button
+              onClick={() => setDesktopSortMode((mode) => (mode === "hot" ? "default" : "hot"))}
+              className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1 ${
+                desktopSortMode === "hot"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <Flame className="w-3 h-3" />
+              按热度排序
+            </button>
+            <span className="text-xs text-slate-400 whitespace-nowrap">
+              {desktopSortMode === "default" ? "默认按摊位号" : "再点已选排序恢复摊位号"}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* Table */}
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        {/* Table - flex to fill remaining space */}
+        <div className="flex-1 min-h-0 flex flex-col pb-6">
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden flex-1 min-h-0 flex flex-col">
           {editMode && (
-            <div className="p-3 border-b border-slate-200 bg-slate-50">
+            <div className="p-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
               <button
                 onClick={handleAddItem}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors text-sm flex items-center gap-1.5"
@@ -392,35 +736,64 @@ export default function ExhibitDetail() {
                 <Plus className="w-4 h-4" />
                 添加新行
               </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedItemIds.size === 0}
+                className="bg-rose-600 text-white px-4 py-2 rounded-lg hover:bg-rose-700 transition-colors text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash className="w-4 h-4" />
+                删除选中{selectedItemIds.size > 0 ? ` ${selectedItemIds.size}` : ""}
+              </button>
             </div>
           )}
 
-          <div ref={tableContainerRef} className="overflow-auto" style={{ maxHeight: "calc(100vh - 450px)" }}>
+          <div ref={tableContainerRef} className="overflow-auto flex-1 min-h-0">
             <table className="w-full border-collapse">
               <thead className="bg-slate-50 sticky top-0 z-10">
                 <tr>
-                  <Th>场馆</Th>
-                  <Th>摊位号</Th>
-                  <Th>制品名称</Th>
-                  <Th>作者</Th>
-                  <Th>图片</Th>
-                  <Th>优先级</Th>
-                  <Th>开摊信息</Th>
-                  <Th>类型</Th>
-                  <Th>状态</Th>
-                  <Th>价格</Th>
-                  <Th>数量</Th>
-                  <Th>限购</Th>
-                  <Th>实付</Th>
-                  <Th>实购</Th>
-                  <Th>备注</Th>
-                  <Th>购买备注</Th>
-                  {editMode && <Th stickyRight="0">操作</Th>}
+                  {editMode && (
+                    <Th width="44px">
+                      <input
+                        type="checkbox"
+                        checked={paginatedItems.length > 0 && paginatedItems.every((item) => selectedItemIds.has(item.id))}
+                        onChange={toggleSelectPage}
+                        aria-label="选择当前页"
+                        className="w-4 h-4 rounded border-slate-300"
+                      />
+                    </Th>
+                  )}
+                  <Th width="50px">场馆</Th>
+                  <Th width="70px">摊位号</Th>
+                  <Th width="200px">制品名称</Th>
+                  <Th width="120px">作者</Th>
+                  <Th width="60px">图片</Th>
+                  <Th width="70px">优先级</Th>
+                  <Th width="60px">热度</Th>
+                  <Th width="100px">开摊信息</Th>
+                  <Th width="60px">类型</Th>
+                  <Th width="70px">状态</Th>
+                  <Th width="70px">单价</Th>
+                  <Th width="50px">数量</Th>
+                  <Th width="70px">实付</Th>
+                  <Th width="100px">备注</Th>
+                  <Th width="90px">详情</Th>
+                  {editMode && <Th stickyRight="0" width="50px">操作</Th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                  <tr key={item.id} data-item-id={item.id} className="hover:bg-slate-50/60 transition-colors">
+                    {editMode && (
+                      <Td>
+                        <input
+                          type="checkbox"
+                          checked={selectedItemIds.has(item.id)}
+                          onChange={() => toggleSelectItem(item.id)}
+                          aria-label={`选择 ${item.productName}`}
+                          className="w-4 h-4 rounded border-slate-300"
+                        />
+                      </Td>
+                    )}
                     {/* 场馆 */}
                     <Td>
                       {editMode ? (
@@ -438,30 +811,28 @@ export default function ExhibitDetail() {
                       )}
                     </Td>
                     {/* 制品名称 */}
-                    <Td minWidth="200px">
+                    <Td maxWidth="200px" wrap>
                       {editMode ? (
-                        <input type="text" value={item.productName} onChange={(e) => handleUpdateItem(item.id, "productName", e.target.value)} className="w-64 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.productName} onChange={(e) => handleUpdateItem(item.id, "productName", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span>{item.productName}</span>
+                        <span className="break-words">{item.productName}</span>
                       )}
                     </Td>
                     {/* 作者 */}
-                    <Td>
+                    <Td maxWidth="120px" wrap>
                       {editMode ? (
-                        <input type="text" value={item.author || ""} onChange={(e) => handleUpdateItem(item.id, "author", e.target.value)} className="w-24 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.author || ""} onChange={(e) => handleUpdateItem(item.id, "author", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span className="text-slate-600">{item.author || "-"}</span>
+                        <span className="text-slate-600 break-words">{item.author || "-"}</span>
                       )}
                     </Td>
                     {/* 图片 */}
                     <Td>
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt="" className="w-12 h-12 object-cover rounded-lg border border-slate-200" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center">
-                          <ImageBroken className="w-5 h-5 text-slate-300" />
-                        </div>
-                      )}
+                      <ImageCell
+                        item={item}
+                        editMode={editMode}
+                        onFileSelect={(file) => handleImageFile(item.id, file)}
+                      />
                     </Td>
                     {/* 优先级 */}
                     <Td>
@@ -479,6 +850,13 @@ export default function ExhibitDetail() {
                           {item.priority || "随缘"}
                         </span>
                       )}
+                    </Td>
+                    {/* 热度 */}
+                    <Td>
+                      <div className="flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5 text-orange-500" />
+                        <span className="text-sm font-medium text-slate-700">{item.hotCount || 0}</span>
+                      </div>
                     </Td>
                     {/* 开摊信息 */}
                     <Td>
@@ -519,12 +897,12 @@ export default function ExhibitDetail() {
                           )}
                         </select>
                       ) : (
-                        <span className={`inline-block px-2 py-1 rounded text-xs whitespace-nowrap ${STATUS_COLOR[item.status]}`}>
+                        <span className={`inline-block px-2 py-1 rounded text-xs whitespace-nowrap ${getStatusColor(item.status)}`}>
                           {STATUS_TEXT[item.status]}
                         </span>
                       )}
                     </Td>
-                    {/* 价格 */}
+                    {/* 单价 */}
                     <Td>
                       {item.type === "free" ? "-" : editMode ? (
                         <input type="number" value={item.price || ""} onChange={(e) => handleUpdateItem(item.id, "price", parseFloat(e.target.value) || undefined)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" placeholder="¥" />
@@ -540,28 +918,10 @@ export default function ExhibitDetail() {
                         <span>{item.quantity || "-"}</span>
                       )}
                     </Td>
-                    {/* 限购 */}
+                    {/* 实付 (自动 = 单价 × 数量) */}
                     <Td>
-                      {editMode ? (
-                        <input type="number" value={item.purchaseLimit || ""} onChange={(e) => handleUpdateItem(item.id, "purchaseLimit", parseInt(e.target.value) || undefined)} className="w-12 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
-                      ) : (
-                        <span>{item.purchaseLimit || "-"}</span>
-                      )}
-                    </Td>
-                    {/* 实付 */}
-                    <Td>
-                      {editMode ? (
-                        <input type="number" value={item.actualPrice || ""} onChange={(e) => handleUpdateItem(item.id, "actualPrice", parseFloat(e.target.value) || undefined)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" placeholder="¥" />
-                      ) : (
-                        <span>{item.actualPrice ? `¥${item.actualPrice}` : "-"}</span>
-                      )}
-                    </Td>
-                    {/* 实购 */}
-                    <Td>
-                      {editMode ? (
-                        <input type="number" value={item.actualQuantity || ""} onChange={(e) => handleUpdateItem(item.id, "actualQuantity", parseInt(e.target.value) || undefined)} className="w-12 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
-                      ) : (
-                        <span>{item.actualQuantity || "-"}</span>
+                      {item.type === "free" ? "-" : (
+                        <span>{item.price && item.quantity ? `¥${(item.price * item.quantity).toFixed(2)}` : "-"}</span>
                       )}
                     </Td>
                     {/* 备注 */}
@@ -572,12 +932,17 @@ export default function ExhibitDetail() {
                         <span className="text-slate-600">{item.note || "-"}</span>
                       )}
                     </Td>
-                    {/* 购买备注 */}
+                    {/* 详情 */}
                     <Td>
-                      {editMode ? (
-                        <input type="text" value={item.purchaseNote || ""} onChange={(e) => handleUpdateItem(item.id, "purchaseNote", e.target.value)} className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                      {item.description ? (
+                        <button
+                          onClick={() => setDetailItem(item)}
+                          className="px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium whitespace-nowrap"
+                        >
+                          查看详情
+                        </button>
                       ) : (
-                        <span className="text-slate-600">{item.purchaseNote || "-"}</span>
+                        <span className="text-slate-300 text-xs">-</span>
                       )}
                     </Td>
                     {/* 操作 */}
@@ -609,8 +974,90 @@ export default function ExhibitDetail() {
               </div>
             </div>
           )}
+          </div>
         </div>
       </div>
+
+      {/* 全局 Loading 覆盖层 — 上传/匹配/保存期间显示 */}
+      {uploadingItems && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
+            <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full" />
+            <div className="text-center">
+              <p className="text-slate-800 font-semibold text-lg">正在导入心愿单</p>
+              <p className="text-slate-500 text-sm mt-1">正在匹配展品信息（可能需要30s以上，请耐心等待）</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导入成功弹窗 */}
+      {uploadResult && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-emerald-600" weight="fill" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 font-display">导入成功</h2>
+                <p className="text-sm text-slate-500">心愿单已保存并同步</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">导入展品</span>
+                <span className="font-semibold text-slate-900">{uploadResult.imported} 件</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">匹配成功</span>
+                <span className="font-semibold text-emerald-600">{uploadResult.matched} 件</span>
+              </div>
+              {uploadResult.skipped > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">跳过重复</span>
+                  <span className="font-semibold text-amber-600">{uploadResult.skipped} 件</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setUploadResult(null)}
+              className="mt-5 w-full bg-indigo-600 text-white py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 详情弹窗 */}
+      {detailItem && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[80vh] shadow-2xl flex flex-col">
+            <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 font-display">{detailItem.productName}</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  {detailItem.boothNumber} · {detailItem.author || "未知作者"}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetailItem(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 overflow-auto">
+              <p className="text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words">
+                {detailItem.description}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upload Modal */}
       {isUploadModalOpen && (
@@ -626,8 +1073,8 @@ export default function ExhibitDetail() {
             {isMatching ? (
               <div className="text-center py-8">
                 <div className="animate-spin w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full mx-auto mb-4" />
-                <p className="text-slate-600 font-medium">正在匹配 CPP 数据...</p>
-                <p className="text-slate-400 text-sm mt-1">自动填充图片和作者信息</p>
+                <p className="text-slate-600 font-medium">正在匹配展品信息</p>
+                <p className="text-slate-400 text-sm mt-1">可能需要30s以上，请耐心等待</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -653,6 +1100,11 @@ export default function ExhibitDetail() {
                     <p className="text-xs text-slate-500">
                       精确 {matchStats.exact} · 高置信 {matchStats.high} · 中置信 {matchStats.medium} · 低置信 {matchStats.low} · 未匹配 {matchStats.none}
                     </p>
+                    {matchStats.fetchedFromAPI > 0 && (
+                      <p className="text-xs text-indigo-600">
+                        实时查询获取 {matchStats.fetchedFromAPI} 个新展品
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -688,13 +1140,14 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
   );
 }
 
-function Th({ children, stickyRight }: { children: React.ReactNode; stickyRight?: string }) {
+function Th({ children, stickyRight, width }: { children: React.ReactNode; stickyRight?: string; width?: string }) {
   const style: any = {};
   if (stickyRight) {
     style.position = "sticky";
     style.right = stickyRight;
     style.zIndex = 20;
   }
+  if (width) style.width = width;
   return (
     <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase border-b whitespace-nowrap" style={style}>
       {children}
@@ -702,9 +1155,10 @@ function Th({ children, stickyRight }: { children: React.ReactNode; stickyRight?
   );
 }
 
-function Td({ children, minWidth, stickyRight }: { children: React.ReactNode; minWidth?: string; stickyRight?: string }) {
+function Td({ children, minWidth, maxWidth, stickyRight, wrap }: { children: React.ReactNode; minWidth?: string; maxWidth?: string; stickyRight?: string; wrap?: boolean }) {
   const style: any = {};
   if (minWidth) style.minWidth = minWidth;
+  if (maxWidth) style.maxWidth = maxWidth;
   if (stickyRight) {
     style.position = "sticky";
     style.right = stickyRight;
@@ -712,8 +1166,83 @@ function Td({ children, minWidth, stickyRight }: { children: React.ReactNode; mi
     style.backgroundColor = "white";
   }
   return (
-    <td className="px-3 py-3 text-sm whitespace-nowrap" style={style}>
+    <td className={`px-3 py-3 text-sm ${wrap ? "" : "whitespace-nowrap"}`} style={style}>
       {children}
     </td>
+  );
+}
+
+/**
+ * 图片单元格 —— 支持点击上传 & 粘贴上传
+ */
+function ImageCell({
+  item,
+  editMode,
+  onFileSelect,
+}: {
+  item: WishItem;
+  editMode: boolean;
+  onFileSelect: (file: File) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleClick = () => {
+    if (editMode) {
+      inputRef.current?.click();
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onFileSelect(file);
+    // 清空 input，允许重复选择同一文件
+    e.target.value = "";
+  };
+
+  return (
+    <div
+      onClick={handleClick}
+      className={`relative w-12 h-12 rounded-lg overflow-hidden group ${
+        editMode ? "cursor-pointer" : ""
+      }`}
+    >
+      {item.imageUrl ? (
+        <>
+          <img
+            src={item.imageUrl}
+            alt=""
+            className="w-12 h-12 object-cover border border-slate-200 rounded-lg"
+          />
+          {editMode && (
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Camera className="w-5 h-5 text-white" />
+            </div>
+          )}
+        </>
+      ) : (
+        <div
+          className={`w-12 h-12 rounded-lg flex items-center justify-center border ${
+            editMode
+              ? "border-dashed border-slate-300 bg-slate-50 hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+              : "border-slate-200 bg-slate-100"
+          }`}
+        >
+          {editMode ? (
+            <Camera className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" />
+          ) : (
+            <ImageBroken className="w-5 h-5 text-slate-300" />
+          )}
+        </div>
+      )}
+      {editMode && (
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleChange}
+          className="hidden"
+        />
+      )}
+    </div>
   );
 }

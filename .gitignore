@@ -2,6 +2,10 @@ node_modules/
 .next/
 .env
 .env.local
+.dev.vars
+.open-next/
+.wrangler/
+cloudflare-env.d.ts
 
 # 爬虫数据（原始文件，不需要部署）
 data/cpp-data/
@@ -25,6 +29,12 @@ Thumbs.db
 # Debug HTML 文件
 debug-*.html
 install.sh
+
+# 爬取进度临时文件
+scripts/crawl-detail-progress.json
+
+# 构建产物
+tsconfig.tsbuildinfo
 
 # Puppeteer
 .puppeteer/

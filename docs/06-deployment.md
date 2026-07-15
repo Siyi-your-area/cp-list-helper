@@ -1,103 +1,124 @@
-# CP展会List帮手 - 部署指南
+# CP List Helper - Cloudflare OpenNext 部署指南
 
-**文档版本**：v1  
-**创建日期**：2026-07-05  
+**文档版本**：v2  
+**更新日期**：2026-07-15  
 **文档维护人**：Siyi
 
 ---
 
-## 一、部署环境
+## 一、部署目标
 
-| 项目 | 信息 |
-|------|------|
-| 平台 | Vercel |
-| 线上地址 | https://cp-list-helper.vercel.app |
-| 源码仓库 | https://github.com/Siyi-your-area/cp-list-helper |
-| 部署分支 | main |
-| 触发方式 | push 到 main 自动部署 |
+当前项目采用 **Cloudflare Workers + OpenNext** 部署 Next.js 全栈应用。
 
----
+| 环境 | Worker 名称 | 用途 |
+|------|-------------|------|
+| 生产环境 | `cp-list-helper` | 正式访问地址 |
+| 预览环境 | `cp-list-helper-preview` | 功能验证、预发布测试 |
 
-## 二、本地开发
+日常开发仍使用：
 
 ```bash
-# 1. 克隆仓库
-git clone git@github.com:Siyi-your-area/cp-list-helper.git
-cd cp-list-helper
-
-# 2. 安装依赖（需要 legacy-peer-deps）
-npm install
-
-# 3. 启动开发服务器
 npm run dev
-
-# 4. 访问 http://localhost:3000
 ```
 
----
-
-## 三、部署流程
-
-### 自动部署（推荐）
-
-1. 修改代码
-2. `git add && git commit && git push`
-3. Vercel 自动检测 push → 构建 → 部署（约 1-2 分钟）
-4. 刷新页面验证
-
-### 手动部署
+接近 Cloudflare 运行时的本地预览使用：
 
 ```bash
-npm i -g vercel
-vercel --prod
+npm run preview
 ```
 
 ---
 
-## 四、构建注意事项
+## 二、关键配置文件
 
-### 已知问题与解决方案
-
-| 问题 | 原因 | 解决方案 |
-|------|------|---------|
-| npm install 失败 | peer dependency 版本冲突 | `.npmrc` 设置 `legacy-peer-deps=true` |
-| Puppeteer 构建超时 | Puppeteer 体积大，Vercel 限制 | 已移至 devDependencies |
-| 数据文件过大 | CP32 数据约 7.4MB | 按摊位拆分，API 按需加载 |
-
-### 关键配置文件
-
-- **`.npmrc`**：`legacy-peer-deps=true`（必须，否则构建失败）
-- **`.vercelignore`**：排除不需要的文件
-- **`package.json` scripts**：`build:cf` 支持 Cloudflare 部署（备用方案）
+| 文件 | 说明 |
+|------|------|
+| `wrangler.jsonc` | Cloudflare Worker 配置，包含生产/预览环境 |
+| `open-next.config.ts` | OpenNext Cloudflare 配置 |
+| `next.config.mjs` | Next.js 配置，并初始化 OpenNext 本地开发适配 |
+| `.dev.vars.example` | 本地 Cloudflare preview 环境变量模板 |
+| `public/_headers` | 静态资源缓存头 |
 
 ---
 
-## 五、CPP 数据更新流程
+## 三、环境变量
 
-当新展会数据需要更新时：
+### 本地开发
+
+普通 Next.js 本地开发读取 `.env.local`：
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
+
+Cloudflare preview 可复制 `.dev.vars.example` 为 `.dev.vars`：
+
+```env
+NEXTJS_ENV=development
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+CPP_COOKIE_JSON=...
+```
+
+`.dev.vars` 不提交 Git。
+
+### Cloudflare 生产/预览
+
+需要在 Cloudflare 中分别配置生产和预览环境变量：
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+CPP_COOKIE_JSON
+```
+
+`CPP_COOKIE_JSON` 必须作为服务端 Secret 保存，不能写入前端代码或 Git。
+
+---
+
+## 四、部署命令
+
+### 预览环境
 
 ```bash
-# 1. 登录 CPP 获取 cookie
-node scripts/login-cpp.mjs
+npm run deploy:preview
+```
 
-# 2. 运行爬虫
-node scripts/crawl-cpp.mjs --event=cp33 --output=./data/cpp-data/cp33-total.json
+### 生产环境
 
-# 3. 预处理数据
-npm run prepare:cpp
+```bash
+npm run deploy
+```
 
-# 4. 提交并推送
-git add public/cpp/
-git commit -m "feat: add CP33 data"
-git push
+### 生成 Cloudflare 类型
+
+```bash
+npm run cf-typegen
 ```
 
 ---
 
-## 六、备用部署方案（Cloudflare Pages）
+## 五、部署前检查
 
 ```bash
-npm run deploy:cf
+npx tsc --noEmit --incremental false
+npm run preview
 ```
 
-此方案使用 `@cloudflare/next-on-pages` 将 Next.js 应用部署到 Cloudflare Pages，作为 Vercel 的备用方案。
+核心路径：
+
+- 首页可打开
+- 可创建心愿单
+- 可输入邀请码进入同一份 list
+- 可上传 Excel 并匹配 Supabase 数据
+- API route 可访问
+- 删除 list 后邀请码失效
+
+---
+
+## 六、后续待办
+
+- CPP 实时搜索兜底：新增服务端 API，从 Cloudflare Secret 读取 `CPP_COOKIE_JSON`
+- 用户上传图片 URL 化：前端压缩后上传到对象存储，数据库只保存 URL
+- 正式推广前补充 CPG08 原始数据并上传 Supabase

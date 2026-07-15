@@ -1,0 +1,4 @@
+NEXTJS_ENV=development
+NEXT_PUBLIC_SUPABASE_URL=https://jfmbeixamoaxodzmqzro.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=replace_with_supabase_anon_key
+CPP_COOKIE_JSON=replace_with_server_side_cookie_json

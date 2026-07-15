@@ -10,8 +10,10 @@ export interface Exhibit {
   name: string;
   venue: string;
   date: string;
+  cppEventId?: string;      // 对应 CPP 数据库中的 event_id（如 "cp32"）
   items: WishItem[];
   cppData?: CPPDataItem[]; // 已废弃，保留兼容
+  shareCode?: string;       // 分享码（4位字母数字）
   createdAt: number;
   updatedAt: number;
 }
@@ -36,7 +38,9 @@ export interface WishItem {
   type?: "paid" | "free";    // 有料 / 无料
   actualPrice?: number;      // 实付金额
   actualQuantity?: number;   // 实购数量
-  purchaseNote?: string;     // 购买备注
+  // CPP 匹配数据
+  hotCount?: number;         // 热度（收藏数）
+  description?: string;      // 展品详情文字
   // 匹配相关字段（自动填充）
   matchConfidence?: MatchConfidence;
   matchedCPPItem?: NormalizedCPPItem;
@@ -78,8 +82,14 @@ export interface NormalizedCPPItem {
   imageUrl: string;          // CDN URL
   tags: string[];            // ["罗小黑战记"]
   eventName: string;         // "CP32-一期"
+  dayId?: string;            // CPP 活动日 ID（如 7040=一期，7042=二期）
   sourceUrl: string;         // CPP 详情页链接
   doujinshiId: number;
+  // 新增字段
+  hotCount?: number;         // 热度
+  originalWork?: string;     // 原作/系列名
+  exchangeType?: string;     // "有偿交换" | "无料交换"
+  description?: string;      // 展品详情文字
 }
 
 /**
@@ -154,15 +164,10 @@ export const STATUS_TEXT: Record<string, string> = {
 };
 
 /**
- * 状态颜色映射
+ * 状态颜色 — 仅供文档参考，实际渲染在组件中用条件 class 实现
+ * （Tailwind JIT 无法检测动态 class 字符串）
+ * pending/待领取 → 淡蓝 | purchased/已领取 → 淡绿 | soldout → 淡红
  */
-export const STATUS_COLOR: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  purchased: "bg-green-100 text-green-800",
-  soldout: "bg-red-100 text-red-800",
-  "待领取": "bg-blue-100 text-blue-800",
-  "已领取": "bg-indigo-100 text-indigo-800",
-};
 
 /**
  * 优先级排序权重

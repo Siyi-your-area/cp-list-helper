@@ -134,13 +134,41 @@ async function fetchByKeyword(
 
 function extractSearchKeyword(productName: string): string {
   if (!productName) return "";
-  // 去掉前缀标记 【】《》「」『』[]()（）
-  let cleaned = productName.replace(/^[\(（【\[「『《][^\)）】\]」』》]*[\)）】\]」』》]\s*/g, "");
-  if (!cleaned.trim()) cleaned = productName;
-  // 去掉"图奈"等角色名前缀（常见于心愿单）
-  cleaned = cleaned.replace(/^(图奈|奈费勒|阿尔图|苏游|萨米尔|花苏|苏丹的游戏)[·•\-\s:：]*/g, "");
-  return cleaned.trim().slice(0, 15);
+
+  let cleaned = productName;
+
+  // Step 1: 分离摊位号和后续内容
+  // "肆Q40《Fairy Tales》" → "《Fairy Tales》"
+  const boothMatch = cleaned.match(/^[一-\u9fff]+[A-Z]?\d+(.*)/);
+  if (boothMatch && boothMatch[1].trim()) {
+    cleaned = boothMatch[1].trim();
+  }
+
+  // Step 2: 去掉前缀标记 【】《》「」『』[]()（）
+  cleaned = cleaned.replace(/^[\(（【\[「『《][^\)）】\]」』》]*[\)）】\]」』》]\s*/g, "");
+
+  // Step 3: 如果处理后太短，尝试从原始输入中提取书名号内容
+  if (cleaned.trim().length < 2) {
+    const bracketMatch = productName.match(/[【\[《「『]([^】\]》」』]+)[】\]》」』]/);
+    if (bracketMatch && bracketMatch[1].trim().length >= 2) {
+      cleaned = bracketMatch[1].trim();
+    } else {
+      cleaned = productName;
+    }
+  }
+
+  // Step 4: 去掉常见角色名前缀（跟 · • - ｜ | 或 《 的）
+  cleaned = cleaned.replace(/^(图奈|奈费勒|苏游|萨米尔|花苏)[·•\-｜|《]\s*/g, "");
+
+  // Step 5: 去掉尾部残留的括号标记
+  cleaned = cleaned.replace(/[\)）】\]」』》]+$/, "");
+
+  // 去掉首尾空格，保留中间空格
+  cleaned = cleaned.trim();
+
+  return cleaned.slice(0, 20);
 }
+
 
 // ---- API Handler ----
 

@@ -135,6 +135,8 @@ export async function createWishItem(
     purchase_limit: item.purchaseLimit || null,
     sort_order: 0,
     cpp_item_id: item.matchedCPPItem?.doujinshiId || null,
+    hot_count: item.hotCount ?? null,
+    description: item.description || null,
   };
 
   const { data, error } = await supabase
@@ -167,6 +169,8 @@ export async function updateWishItem(
   if (updates.price !== undefined) row.price = updates.price;
   if (updates.quantity !== undefined) row.quantity = updates.quantity;
   if (updates.purchaseLimit !== undefined) row.purchase_limit = updates.purchaseLimit;
+  if (updates.hotCount !== undefined) row.hot_count = updates.hotCount;
+  if (updates.description !== undefined) row.description = updates.description;
 
   const { data, error } = await supabase
     .from("wish_items")
@@ -284,14 +288,30 @@ export async function searchCPPItems(
   keyword: string,
   limit = 50
 ): Promise<NormalizedCPPItem[]> {
-  const { data, error } = await supabase
-    .from("cpp_items")
-    .select("*")
-    .eq("event_id", eventId)
-    .ilike("product_name", `%${keyword}%`)
-    .limit(limit);
+  // 同时搜索原关键词和去掉空格的版本（处理"酥油 uno" vs "酥油 uno"）
+  const keywordNoSpace = keyword.replace(/\s+/g, '');
+  const keywords = keyword !== keywordNoSpace ? [keyword, keywordNoSpace] : [keyword];
 
-  if (error) throw error;
+  let allResults: any[] = [];
+  for (const kw of keywords) {
+    const { data, error } = await supabase
+      .from("cpp_items")
+      .select("*")
+      .eq("event_id", eventId)
+      .ilike("product_name", `%${kw}%`)
+      .limit(limit);
+
+    if (error) throw error;
+    if (data) allResults = allResults.concat(data);
+  }
+
+  // 去重
+  const seen = new Set<number>();
+  const unique = allResults.filter(r => {
+    if (seen.has(r.doujinshi_id)) return false;
+    seen.add(r.doujinshi_id);
+    return true;
+  });
 
   return (data || []).map((row: any) => ({
     boothNumber: row.booth_number || "",
@@ -329,6 +349,8 @@ function dbRowToWishItem(row: any): WishItem {
     price: row.price || undefined,
     quantity: row.quantity || 1,
     purchaseLimit: row.purchase_limit || undefined,
+    hotCount: row.hot_count ?? undefined,
+    description: row.description || undefined,
   };
 }
 

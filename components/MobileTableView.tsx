@@ -10,6 +10,7 @@ import {
   Check,
   Trash,
   Camera,
+  Flame,
 } from "@phosphor-icons/react";
 import type { WishItem } from "@/lib/types";
 import { STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
@@ -25,7 +26,7 @@ interface MobileTableViewProps {
 }
 
 type FilterMode = "all" | "unpurchased";
-type SortMode = "default" | "priority" | "booth";
+type SortMode = "default" | "priority" | "booth" | "hot";
 
 // ============================================================
 // 状态循环逻辑
@@ -123,6 +124,13 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
         if (ao !== bo) return ao - bo;
         return a.boothNumber.localeCompare(b.boothNumber, "zh");
       });
+    } else if (sortMode === "hot") {
+      result.sort((a, b) => {
+        const aHot = a.hotCount || 0;
+        const bHot = b.hotCount || 0;
+        if (aHot !== bHot) return bHot - aHot;
+        return a.boothNumber.localeCompare(b.boothNumber, "zh");
+      });
     } else if (sortMode === "booth") {
       result.sort((a, b) => a.boothNumber.localeCompare(b.boothNumber, "zh"));
     }
@@ -218,11 +226,11 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
         </button>
         <div className="relative">
           <button
-            onClick={() => setSortMode(sortMode === "default" ? "priority" : sortMode === "priority" ? "booth" : "default")}
+            onClick={() => setSortMode(sortMode === "default" ? "priority" : sortMode === "priority" ? "hot" : sortMode === "hot" ? "booth" : "default")}
             className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap flex items-center gap-1"
           >
-            {sortMode === "default" ? "默认排序" : sortMode === "priority" ? "优先级" : "摊位号"}
-            <CaretDown className="w-3 h-3" />
+            {sortMode === "default" ? "默认排序" : sortMode === "priority" ? "优先级" : sortMode === "hot" ? "热度" : "摊位号"}
+            {sortMode === "hot" ? <Flame className="w-3 h-3 text-orange-500" weight="fill" /> : <CaretDown className="w-3 h-3" />}
           </button>
         </div>
       </div>
@@ -413,6 +421,13 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                   {drawerItem.priority && (
                     <span className="text-xs text-slate-400">{drawerItem.priority}</span>
                   )}
+                  {/* 热度 */}
+                  {(drawerItem.hotCount !== undefined && drawerItem.hotCount > 0) && (
+                    <span className="flex items-center gap-0.5 text-xs text-orange-600 font-medium">
+                      <Flame className="w-3 h-3" weight="fill" />
+                      {drawerItem.hotCount}
+                    </span>
+                  )}
                 </div>
                 <div className="text-base text-slate-800 font-medium mb-1">
                   {drawerItem.productName}
@@ -421,6 +436,14 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                   <div className="text-sm text-slate-500">{drawerItem.author}</div>
                 )}
               </div>
+
+              {/* 详情 */}
+              {drawerItem.description && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                  <div className="text-xs text-amber-800 font-medium mb-1">展品详情</div>
+                  <div className="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">{drawerItem.description}</div>
+                </div>
+              )}
 
               {/* ---- 单价 / 数量 / 状态（紧跟商品信息，无需滚动） ---- */}
               {drawerItem.type === "free" ? (

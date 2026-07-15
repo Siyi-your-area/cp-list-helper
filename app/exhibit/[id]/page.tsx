@@ -98,6 +98,8 @@ export default function ExhibitDetail() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isMatching, setIsMatching] = useState(false);
   const [matchStats, setMatchStats] = useState<any>(null);
+  const [uploadingItems, setUploadingItems] = useState(false);
+  const [desktopSortMode, setDesktopSortMode] = useState<"priority" | "hot">("priority");
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // ---- 分享码 ----
@@ -261,7 +263,8 @@ export default function ExhibitDetail() {
         return;
       }
 
-      // 3. 调用 API 匹配
+      // 3. 显示全局 Loading 并调用 API 匹配
+      setUploadingItems(true);
       setIsMatching(true);
       setMatchStats(null);
 
@@ -293,10 +296,17 @@ export default function ExhibitDetail() {
           venue: input.boothNumber.charAt(0) || "",
           type,
           status: type === "free" ? "待领取" : "pending",
+          hotCount: result?.cppItem?.hotCount || 0,
+          description: result?.cppItem?.description || "",
+          matchedCPPItem: result?.cppItem,
+          matchConfidence: result?.confidence,
         };
       });
 
       await addItems(newItems);
+
+      // 5. Loading 完成，关闭弹窗
+      setUploadingItems(false);
 
       const matchedCount = results.filter((r) => r.matched).length;
       const dedupMsg = skippedCount > 0 ? `\n跳过重复 ${skippedCount} 件` : "";
@@ -307,6 +317,7 @@ export default function ExhibitDetail() {
       setIsUploadModalOpen(false);
     } catch (error) {
       setIsMatching(false);
+      setUploadingItems(false);
       alert("Excel 解析失败: " + (error as Error).message);
       console.error(error);
     }
@@ -353,6 +364,14 @@ export default function ExhibitDetail() {
     }
 
     const sorted = [...filtered].sort((a, b) => {
+      if (desktopSortMode === "hot") {
+        // 按热度排序（降序）
+        const aHot = a.hotCount || 0;
+        const bHot = b.hotCount || 0;
+        if (aHot !== bHot) return bHot - aHot;
+        return a.boothNumber.localeCompare(b.boothNumber, "zh");
+      }
+      // 按优先级排序
       const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
       const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
       return aP - bP;
@@ -366,7 +385,7 @@ export default function ExhibitDetail() {
     });
 
     return grouped;
-  }, [items, searchKeyword]);
+  }, [items, searchKeyword, desktopSortMode]);
 
   const flattenedItems = useMemo(() => {
     const items: WishItem[] = [];
@@ -492,9 +511,9 @@ export default function ExhibitDetail() {
           </div>
         </div>
 
-        {/* Search */}
-        <div className="shrink-0 pb-3">
-          <div className="relative">
+        {/* Search + Sort */}
+        <div className="shrink-0 pb-3 flex gap-3">
+          <div className="flex-1 relative">
             <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
@@ -511,6 +530,30 @@ export default function ExhibitDetail() {
                 <X className="w-4 h-4" />
               </button>
             )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap">排序：</span>
+            <button
+              onClick={() => setDesktopSortMode("priority")}
+              className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                desktopSortMode === "priority"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              按优先级
+            </button>
+            <button
+              onClick={() => setDesktopSortMode("hot")}
+              className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1 ${
+                desktopSortMode === "hot"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              <Flame className="w-3 h-3" />
+              按热度
+            </button>
           </div>
         </div>
 
@@ -533,20 +576,22 @@ export default function ExhibitDetail() {
             <table className="w-full border-collapse">
               <thead className="bg-slate-50 sticky top-0 z-10">
                 <tr>
-                  <Th>场馆</Th>
-                  <Th>摊位号</Th>
-                  <Th>制品名称</Th>
-                  <Th>作者</Th>
-                  <Th>图片</Th>
-                  <Th>优先级</Th>
-                  <Th>开摊信息</Th>
-                  <Th>类型</Th>
-                  <Th>状态</Th>
-                  <Th>单价</Th>
-                  <Th>数量</Th>
-                  <Th>实付</Th>
-                  <Th>备注</Th>
-                  {editMode && <Th stickyRight="0">操作</Th>}
+                  <Th width="50px">场馆</Th>
+                  <Th width="70px">摊位号</Th>
+                  <Th width="200px">制品名称</Th>
+                  <Th width="120px">作者</Th>
+                  <Th width="60px">图片</Th>
+                  <Th width="70px">优先级</Th>
+                  <Th width="60px">热度</Th>
+                  <Th>详情</Th>
+                  <Th width="100px">开摊信息</Th>
+                  <Th width="60px">类型</Th>
+                  <Th width="70px">状态</Th>
+                  <Th width="70px">单价</Th>
+                  <Th width="50px">数量</Th>
+                  <Th width="70px">实付</Th>
+                  <Th width="100px">备注</Th>
+                  {editMode && <Th stickyRight="0" width="50px">操作</Th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -569,19 +614,19 @@ export default function ExhibitDetail() {
                       )}
                     </Td>
                     {/* 制品名称 */}
-                    <Td minWidth="200px">
+                    <Td maxWidth="200px" wrap>
                       {editMode ? (
-                        <input type="text" value={item.productName} onChange={(e) => handleUpdateItem(item.id, "productName", e.target.value)} className="w-64 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.productName} onChange={(e) => handleUpdateItem(item.id, "productName", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span>{item.productName}</span>
+                        <span className="break-words">{item.productName}</span>
                       )}
                     </Td>
                     {/* 作者 */}
-                    <Td>
+                    <Td maxWidth="120px" wrap>
                       {editMode ? (
-                        <input type="text" value={item.author || ""} onChange={(e) => handleUpdateItem(item.id, "author", e.target.value)} className="w-24 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.author || ""} onChange={(e) => handleUpdateItem(item.id, "author", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span className="text-slate-600">{item.author || "-"}</span>
+                        <span className="text-slate-600 break-words">{item.author || "-"}</span>
                       )}
                     </Td>
                     {/* 图片 */}
@@ -607,6 +652,21 @@ export default function ExhibitDetail() {
                         <span className={`inline-block px-2 py-1 rounded text-xs border whitespace-nowrap ${PRIORITY_COLOR[item.priority || "随缘"]}`}>
                           {item.priority || "随缘"}
                         </span>
+                      )}
+                    </Td>
+                    {/* 热度 */}
+                    <Td>
+                      <div className="flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5 text-orange-500" />
+                        <span className="text-sm font-medium text-slate-700">{item.hotCount || 0}</span>
+                      </div>
+                    </Td>
+                    {/* 详情 */}
+                    <Td wrap>
+                      {item.description ? (
+                        <span className="text-slate-600 text-xs leading-relaxed break-words">{item.description}</span>
+                      ) : (
+                        <span className="text-slate-300 text-xs">-</span>
                       )}
                     </Td>
                     {/* 开摊信息 */}
@@ -716,6 +776,19 @@ export default function ExhibitDetail() {
         </div>
       </div>
 
+      {/* 全局 Loading 覆盖层 — 上传/匹配/保存期间显示 */}
+      {uploadingItems && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
+            <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full" />
+            <div className="text-center">
+              <p className="text-slate-800 font-semibold text-lg">正在导入心愿单</p>
+              <p className="text-slate-500 text-sm mt-1">解析数据 → 匹配 CPP → 保存条目</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upload Modal */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -797,13 +870,14 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
   );
 }
 
-function Th({ children, stickyRight }: { children: React.ReactNode; stickyRight?: string }) {
+function Th({ children, stickyRight, width }: { children: React.ReactNode; stickyRight?: string; width?: string }) {
   const style: any = {};
   if (stickyRight) {
     style.position = "sticky";
     style.right = stickyRight;
     style.zIndex = 20;
   }
+  if (width) style.width = width;
   return (
     <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase border-b whitespace-nowrap" style={style}>
       {children}
@@ -811,9 +885,10 @@ function Th({ children, stickyRight }: { children: React.ReactNode; stickyRight?
   );
 }
 
-function Td({ children, minWidth, stickyRight }: { children: React.ReactNode; minWidth?: string; stickyRight?: string }) {
+function Td({ children, minWidth, maxWidth, stickyRight, wrap }: { children: React.ReactNode; minWidth?: string; maxWidth?: string; stickyRight?: string; wrap?: boolean }) {
   const style: any = {};
   if (minWidth) style.minWidth = minWidth;
+  if (maxWidth) style.maxWidth = maxWidth;
   if (stickyRight) {
     style.position = "sticky";
     style.right = stickyRight;
@@ -821,7 +896,7 @@ function Td({ children, minWidth, stickyRight }: { children: React.ReactNode; mi
     style.backgroundColor = "white";
   }
   return (
-    <td className="px-3 py-3 text-sm whitespace-nowrap" style={style}>
+    <td className={`px-3 py-3 text-sm ${wrap ? "" : "whitespace-nowrap"}`} style={style}>
       {children}
     </td>
   );

@@ -98,8 +98,8 @@ export default function Home() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("确定删除这个展会吗？心愿单数据也会被删除，但 CPP 展品数据不受影响。")) return;
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`是否删除【${name}】的所有心愿单信息？`)) return;
     try {
       await deleteExhibitAsync(id);
       await loadExhibits();
@@ -228,7 +228,7 @@ export default function Home() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(exhibit.id);
+                        handleDelete(exhibit.id, exhibit.name);
                       }}
                       className="text-slate-300 hover:text-rose-500 transition-colors p-1 rounded"
                     >

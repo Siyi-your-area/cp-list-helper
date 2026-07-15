@@ -37,6 +37,9 @@ export interface WishItem {
   type?: "paid" | "free";    // 有料 / 无料
   actualPrice?: number;      // 实付金额
   actualQuantity?: number;   // 实购数量
+  // CPP 匹配数据
+  hotCount?: number;         // 热度（收藏数）
+  description?: string;      // 展品详情文字
   // 匹配相关字段（自动填充）
   matchConfidence?: MatchConfidence;
   matchedCPPItem?: NormalizedCPPItem;

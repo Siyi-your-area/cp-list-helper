@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "cp-list-helper",
+  "compatibility_date": "2026-06-18",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "cp-list-helper"
+    }
+  ],
+  "env": {
+    "preview": {
+      "name": "cp-list-helper-preview",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "cp-list-helper-preview"
+        }
+      ]
+    }
+  }
+}

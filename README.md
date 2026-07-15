@@ -107,36 +107,35 @@ docs/test-plan-user-journey-2026-07-15.md
 
 ## 部署建议
 
-项目当前可以考虑两条路线：
+当前部署目标是 Cloudflare Workers + OpenNext。
 
-### Cloudflare Pages
+### Cloudflare OpenNext
 
-仓库中已有 Cloudflare 相关依赖和脚本：
+本项目已使用 `@opennextjs/cloudflare` 适配 Cloudflare Workers，保留 `next dev` 做日常本地开发。
 
 ```bash
-npm run build:cf
+npm run preview        # 本地 Workers runtime 预览
+npm run deploy         # 部署生产 Worker: cp-list-helper
+npm run deploy:preview # 部署预览 Worker: cp-list-helper-preview
 ```
 
-适合希望使用 Cloudflare Pages + OpenNext 体系的部署方式。部署前需要在 Cloudflare Pages 中配置 Supabase 环境变量。
-
-### Vercel
-
-Next.js 原生支持最好，配置相对简单，也适合先做 MVP 验证。
-
-部署前都需要确认：
+部署前需要配置：
 
 - Supabase 环境变量已配置
 - Supabase 表结构 migration 已执行
 - 生产环境可以访问 Supabase
 - 邀请码和 list 数据使用同一个 Supabase 项目
+- CPP cookie 作为服务端 Secret 配置，不提交到 Git
 
 ## 常用脚本
 
 ```bash
-npm run dev       # 本地开发
-npm run build     # 生产构建
-npm run start     # 启动生产服务
-npm run build:cf  # Cloudflare Pages 构建
+npm run dev            # Next.js 本地开发
+npm run build          # Next.js 生产构建
+npm run preview        # Cloudflare Workers 本地预览
+npm run deploy         # Cloudflare 生产部署
+npm run deploy:preview # Cloudflare 预览部署
+npm run cf-typegen     # 生成 Cloudflare env 类型
 ```
 
 ## License

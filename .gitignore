@@ -2,6 +2,10 @@ node_modules/
 .next/
 .env
 .env.local
+.dev.vars
+.open-next/
+.wrangler/
+cloudflare-env.d.ts
 
 # 爬虫数据（原始文件，不需要部署）
 data/cpp-data/

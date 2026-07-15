@@ -57,6 +57,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedExhibit, setSelectedExhibit] = useState("");
+  const [listName, setListName] = useState("");
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Exhibit | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -91,11 +92,23 @@ export default function Home() {
     const preset = EXHIBIT_PRESETS.find((p) => p.id === selectedExhibit);
     if (!preset) return;
 
+    const trimmedListName = listName.trim();
+    if (!trimmedListName) {
+      alert("请输入心愿单名称");
+      return;
+    }
+    if (trimmedListName.length > 50) {
+      alert("心愿单名称最多 50 个字");
+      return;
+    }
+
     try {
       setCreating(true);
-      await createExhibitAsync(preset.id, preset.label, preset.days, preset.cppEventId);
+      const listId = `${preset.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      await createExhibitAsync(listId, trimmedListName, preset.days, preset.cppEventId);
       setIsModalOpen(false);
       setSelectedExhibit("");
+      setListName("");
       await loadExhibits();
     } catch (error: any) {
       alert("创建失败: " + error.message);
@@ -175,7 +188,7 @@ export default function Home() {
               className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2 active:scale-[0.98]"
             >
               <Plus className="w-4 h-4" weight="bold" />
-              <span>创建新展会</span>
+              <span>创建心愿单</span>
             </button>
           </div>
         </div>
@@ -193,8 +206,8 @@ export default function Home() {
             <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
               <ListHeart className="w-8 h-8 text-slate-400" />
             </div>
-            <h2 className="text-xl font-semibold text-slate-700 mb-2 font-display">还没有展会</h2>
-            <p className="text-slate-500 text-sm mb-8">点击上方按钮创建第一个展会</p>
+            <h2 className="text-xl font-semibold text-slate-700 mb-2 font-display">还没有心愿单</h2>
+            <p className="text-slate-500 text-sm mb-8">点击上方按钮创建第一个心愿单</p>
 
             {/* 邀请码加入（即使没有展会也显示） */}
             <InviteCodeCard
@@ -219,7 +232,7 @@ export default function Home() {
             {/* 分隔线 */}
             <div className="flex items-center gap-4 my-8">
               <div className="flex-1 h-px bg-slate-200" />
-              <span className="text-sm text-slate-400">我的展会</span>
+              <span className="text-sm text-slate-400">我的心愿单</span>
               <div className="flex-1 h-px bg-slate-200" />
             </div>
 
@@ -274,9 +287,13 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-900 font-display">创建新展会</h2>
+              <h2 className="text-xl font-bold text-slate-900 font-display">创建展会心愿单</h2>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setSelectedExhibit("");
+                  setListName("");
+                }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -284,6 +301,18 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">心愿单名称</label>
+                <input
+                  type="text"
+                  value={listName}
+                  onChange={(e) => setListName(e.target.value.slice(0, 50))}
+                  maxLength={50}
+                  placeholder="例如：Siyi 的 CP32 一期 list"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                />
+                <div className="mt-1 text-right text-xs text-slate-400">{listName.length}/50</div>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">选择展会</label>
                 <div className="relative">
@@ -315,14 +344,18 @@ export default function Home() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleCreate}
-                disabled={creating}
+                disabled={creating || !selectedExhibit || !listName.trim()}
                 className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {creating && <Spinner className="w-4 h-4 animate-spin" />}
                 {creating ? "创建中..." : "创建"}
               </button>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setSelectedExhibit("");
+                  setListName("");
+                }}
                 className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg hover:bg-slate-200 transition-colors font-medium"
               >
                 取消

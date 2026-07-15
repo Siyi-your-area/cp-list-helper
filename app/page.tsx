@@ -28,21 +28,25 @@ import {
 const EXHIBIT_PRESETS: {
   id: string;
   label: string;
+  cppEventId: string;
   days: { id: string; name: string }[];
 }[] = [
   {
     id: "cp32-day1",
     label: "CP32一期",
+    cppEventId: "cp32",
     days: [{ id: "7040", name: "5.1-5.2" }],
   },
   {
     id: "cp32-day2",
     label: "CP32二期",
+    cppEventId: "cp32",
     days: [{ id: "7042", name: "5.4-5.5" }],
   },
   {
     id: "cpg08",
     label: "CPG08",
+    cppEventId: "cpg08",
     days: [{ id: "7073", name: "8.22-8.23" }],
   },
 ];
@@ -54,6 +58,8 @@ export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedExhibit, setSelectedExhibit] = useState("");
   const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Exhibit | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // ---- 邀请码加入 ----
   const [inviteCode, setInviteCode] = useState("");
@@ -87,7 +93,7 @@ export default function Home() {
 
     try {
       setCreating(true);
-      await createExhibitAsync(preset.id, preset.label, preset.days);
+      await createExhibitAsync(preset.id, preset.label, preset.days, preset.cppEventId);
       setIsModalOpen(false);
       setSelectedExhibit("");
       await loadExhibits();
@@ -98,13 +104,17 @@ export default function Home() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`是否删除【${name}】的所有心愿单信息？`)) return;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteExhibitAsync(id);
+      setDeleting(true);
+      await deleteExhibitAsync(deleteTarget.id);
+      setDeleteTarget(null);
       await loadExhibits();
     } catch (error: any) {
       alert("删除失败: " + error.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -228,7 +238,7 @@ export default function Home() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(exhibit.id, exhibit.name);
+                        setDeleteTarget(exhibit);
                       }}
                       className="text-slate-300 hover:text-rose-500 transition-colors p-1 rounded"
                     >
@@ -314,6 +324,41 @@ export default function Home() {
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl">
+            <div className="flex items-start gap-3 mb-5">
+              <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                <Trash className="w-5 h-5 text-rose-600" weight="bold" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 font-display">
+                  确认删除{deleteTarget.name}这份list?
+                </h2>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-rose-600 text-white py-2.5 rounded-lg hover:bg-rose-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleting && <Spinner className="w-4 h-4 animate-spin" />}
+                {deleting ? "删除中..." : "删除"}
+              </button>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg hover:bg-slate-200 transition-colors font-medium disabled:opacity-50"
               >
                 取消
               </button>

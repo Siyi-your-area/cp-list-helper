@@ -41,6 +41,7 @@ export async function getExhibitsFromDB(): Promise<Exhibit[]> {
       date: dateStr,
       items: (wishItems || []).map((w: any) => ({ id: w.id } as WishItem)),
       shareCode: event.share_code || undefined,
+      cppEventId: event.cpp_event_id || undefined,
       cppData: undefined,
       createdAt: new Date(event.created_at).getTime(),
       updatedAt: new Date(event.created_at).getTime(),
@@ -74,6 +75,7 @@ export async function createExhibitInDB(
     name,
     venue: "",
     date: days.map((d) => d.name).join(" / "),
+    cppEventId,
     items: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -81,15 +83,23 @@ export async function createExhibitInDB(
 }
 
 /**
- * 删除展会（只删心愿单，不删 CPP 展品数据）
+ * 删除用户创建的 list：删除心愿单和展会入口，不删 CPP 原始展品数据。
+ * 展会入口删除后，share_code 也会一起失效。
  */
 export async function deleteExhibitFromDB(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error: itemsError } = await supabase
     .from("wish_items")
     .delete()
     .eq("event_id", id);
 
-  if (error) throw error;
+  if (itemsError) throw itemsError;
+
+  const { error: eventError } = await supabase
+    .from("events")
+    .delete()
+    .eq("id", id);
+
+  if (eventError) throw eventError;
   return true;
 }
 
@@ -223,18 +233,8 @@ export async function deleteWishItem(eventId: string, itemId: string): Promise<b
 // CPP 展品查询（供匹配 API 使用）
 // ============================================================
 
-/**
- * 获取某个展会的所有 CPP 展品（供构建匹配索引）
- */
-export async function getCPPItems(eventId: string): Promise<NormalizedCPPItem[]> {
-  const { data, error } = await supabase
-    .from("cpp_items")
-    .select("*")
-    .eq("event_id", eventId);
-
-  if (error) throw error;
-
-  return (data || []).map((row: any) => ({
+function dbRowToCPPItem(row: any): NormalizedCPPItem {
+  return {
     boothNumber: row.booth_number || "",
     boothName: row.booth_name || "",
     productName: row.product_name || "",
@@ -242,42 +242,93 @@ export async function getCPPItems(eventId: string): Promise<NormalizedCPPItem[]>
     imageUrl: row.image_url || "",
     tags: row.tags || [],
     eventName: "",
+    dayId: row.day_id || undefined,
     sourceUrl: row.source_url || "",
     doujinshiId: row.doujinshi_id || 0,
     hotCount: row.hot_count || 0,
     originalWork: row.original_work || "",
     exchangeType: row.exchange_type || "",
     description: row.description || "",
-  }));
+  };
+}
+
+/**
+ * 获取某个 CPP 展会的所有 CPP 展品（供构建匹配索引）。
+ * CP32 的 event_id 统一是 cp32，一期/二期用 day_id 区分。
+ */
+export async function getCPPItems(eventId: string, dayIds?: string[]): Promise<NormalizedCPPItem[]> {
+  let query = supabase
+    .from("cpp_items")
+    .select("*")
+    .eq("event_id", eventId);
+
+  if (dayIds && dayIds.length > 0) {
+    query = query.in("day_id", dayIds);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+
+  return (data || []).map(dbRowToCPPItem);
+}
+
+/**
+ * 将用户展会 ID 解析为 CPP 数据库查询范围。
+ * 例如页面展会是 cp32-day1/cp32-day2，cpp_items.event_id 统一是 cp32，
+ * 再用 day_id=7040/7042 区分一期和二期。
+ */
+export async function resolveCPPMatchScope(eventId: string): Promise<{ eventId: string; dayIds?: string[] }> {
+  try {
+    const { data, error } = await supabase
+      .from("events")
+      .select("cpp_event_id, days")
+      .eq("id", eventId)
+      .maybeSingle();
+
+    if (!error && data) {
+      const dayIds = Array.isArray(data.days)
+        ? data.days.map((day: any) => String(day.id)).filter(Boolean)
+        : undefined;
+
+      return {
+        eventId: data.cpp_event_id || (eventId.startsWith("cp32") ? "cp32" : eventId),
+        dayIds,
+      };
+    }
+  } catch {
+    // 旧表结构或本地调试时降级到规则映射
+  }
+
+  if (eventId === "cp32-day1") return { eventId: "cp32", dayIds: ["7040"] };
+  if (eventId === "cp32-day2") return { eventId: "cp32", dayIds: ["7042"] };
+  if (eventId.startsWith("cp32")) return { eventId: "cp32" };
+  return { eventId };
 }
 
 /**
  * 按摊位号查询 CPP 展品
  */
-export async function getCPPItemsByBooth(eventId: string, boothNumber: string): Promise<NormalizedCPPItem[]> {
-  const { data, error } = await supabase
+export async function getCPPItemsByBooth(
+  eventId: string,
+  boothNumber: string,
+  dayIds?: string[]
+): Promise<NormalizedCPPItem[]> {
+  let query = supabase
     .from("cpp_items")
     .select("*")
     .eq("event_id", eventId)
     .eq("booth_number", boothNumber);
 
+  if (dayIds && dayIds.length > 0) {
+    query = query.in("day_id", dayIds);
+  }
+
+  const { data, error } = await query;
+
   if (error) throw error;
 
-  return (data || []).map((row: any) => ({
-    boothNumber: row.booth_number || "",
-    boothName: row.booth_name || "",
-    productName: row.product_name || "",
-    author: row.author || "",
-    imageUrl: row.image_url || "",
-    tags: row.tags || [],
-    eventName: "",
-    sourceUrl: row.source_url || "",
-    doujinshiId: row.doujinshi_id || 0,
-    hotCount: row.hot_count || 0,
-    originalWork: row.original_work || "",
-    exchangeType: row.exchange_type || "",
-    description: row.description || "",
-  }));
+  return (data || []).map(dbRowToCPPItem);
 }
 
 /**
@@ -286,20 +337,27 @@ export async function getCPPItemsByBooth(eventId: string, boothNumber: string): 
 export async function searchCPPItems(
   eventId: string,
   keyword: string,
-  limit = 50
+  limit = 50,
+  dayIds?: string[]
 ): Promise<NormalizedCPPItem[]> {
   // 同时搜索原关键词和去掉空格的版本（处理"酥油 uno" vs "酥油 uno"）
-  const keywordNoSpace = keyword.replace(/\s+/g, '');
+  const keywordNoSpace = keyword.replace(/\s+/g, "");
   const keywords = keyword !== keywordNoSpace ? [keyword, keywordNoSpace] : [keyword];
 
   let allResults: any[] = [];
   for (const kw of keywords) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("cpp_items")
       .select("*")
       .eq("event_id", eventId)
       .ilike("product_name", `%${kw}%`)
       .limit(limit);
+
+    if (dayIds && dayIds.length > 0) {
+      query = query.in("day_id", dayIds);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     if (data) allResults = allResults.concat(data);
@@ -307,27 +365,13 @@ export async function searchCPPItems(
 
   // 去重
   const seen = new Set<number>();
-  const unique = allResults.filter(r => {
-    if (seen.has(r.doujinshi_id)) return false;
-    seen.add(r.doujinshi_id);
+  const unique = allResults.filter((row) => {
+    if (seen.has(row.doujinshi_id)) return false;
+    seen.add(row.doujinshi_id);
     return true;
   });
 
-  return (data || []).map((row: any) => ({
-    boothNumber: row.booth_number || "",
-    boothName: row.booth_name || "",
-    productName: row.product_name || "",
-    author: row.author || "",
-    imageUrl: row.image_url || "",
-    tags: row.tags || [],
-    eventName: "",
-    sourceUrl: row.source_url || "",
-    doujinshiId: row.doujinshi_id || 0,
-    hotCount: row.hot_count || 0,
-    originalWork: row.original_work || "",
-    exchangeType: row.exchange_type || "",
-    description: row.description || "",
-  }));
+  return unique.map(dbRowToCPPItem);
 }
 
 // ============================================================

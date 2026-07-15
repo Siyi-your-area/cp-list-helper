@@ -23,7 +23,6 @@ import {
   Copy,
   CheckCircle,
 } from "@phosphor-icons/react";
-import * as XLSX from "xlsx";
 import type { WishItem, MatchResult, MatchInput } from "@/lib/types";
 import { STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
 import { parseExcelFile } from "@/lib/excel-parser";
@@ -76,6 +75,43 @@ function detectTypeFromCPP(result: MatchResult | undefined): "paid" | "free" {
   return "paid";
 }
 
+async function imageUrlToExcelImage(
+  imageUrl: string
+): Promise<{ base64: string; extension: "png" | "jpeg" | "gif" } | null> {
+  try {
+    if (imageUrl.startsWith("data:image/")) {
+      const match = imageUrl.match(/^data:image\/(png|jpeg|jpg|gif);base64,/i);
+      const extension = match?.[1]?.toLowerCase() === "jpg" ? "jpeg" : match?.[1]?.toLowerCase();
+      if (extension === "png" || extension === "jpeg" || extension === "gif") {
+        return { base64: imageUrl, extension };
+      }
+      return null;
+    }
+
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+
+    const blob = await response.blob();
+    const mime = blob.type || "image/png";
+    const extension = mime.includes("jpeg") || mime.includes("jpg")
+      ? "jpeg"
+      : mime.includes("gif")
+        ? "gif"
+        : "png";
+
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+    return { base64, extension };
+  } catch {
+    return null;
+  }
+}
+
 export default function ExhibitDetail() {
   const params = useParams();
   const router = useRouter();
@@ -99,7 +135,11 @@ export default function ExhibitDetail() {
   const [isMatching, setIsMatching] = useState(false);
   const [matchStats, setMatchStats] = useState<any>(null);
   const [uploadingItems, setUploadingItems] = useState(false);
-  const [desktopSortMode, setDesktopSortMode] = useState<"priority" | "hot">("priority");
+  const [desktopSortMode, setDesktopSortMode] = useState<"default" | "hot" | "priority">("default");
+  const [uploadResult, setUploadResult] = useState<{ imported: number; matched: number; skipped: number } | null>(null);
+  const [detailItem, setDetailItem] = useState<WishItem | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // ---- 分享码 ----
@@ -141,11 +181,61 @@ export default function ExhibitDetail() {
     setCurrentPage(1);
   }, [searchKeyword]);
 
+  useEffect(() => {
+    if (!editMode) {
+      setSelectedItemIds(new Set());
+    }
+  }, [editMode]);
+
   // ---- 操作函数 ----
 
   const handleDeleteItem = async (id: string) => {
     if (!confirm("确定删除这一行吗？")) return;
     await removeItem(id);
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selectedItemIds);
+    if (ids.length === 0) return;
+    if (!confirm(`确定删除选中的 ${ids.length} 行吗？`)) return;
+
+    for (const id of ids) {
+      await removeItem(id);
+    }
+    setSelectedItemIds(new Set());
+  };
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectPage = () => {
+    const pageIds = paginatedItems.map((item) => item.id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedItemIds.has(id));
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      pageIds.forEach((id) => {
+        if (allSelected) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+      });
+      return next;
+    });
   };
 
   const handleAddItem = async () => {
@@ -236,6 +326,7 @@ export default function ExhibitDetail() {
 
   const handleUploadExcel = async (file: File) => {
     try {
+      setUploadResult(null);
       // 1. 解析 Excel
       const inputs = await parseExcelFile(file);
       if (inputs.length === 0) {
@@ -309,12 +400,12 @@ export default function ExhibitDetail() {
       setUploadingItems(false);
 
       const matchedCount = results.filter((r) => r.matched).length;
-      const dedupMsg = skippedCount > 0 ? `\n跳过重复 ${skippedCount} 件` : "";
-      alert(
-        `导入 ${newItems.length} 件展品${dedupMsg}\n` +
-        `匹配成功 ${matchedCount} 件`
-      );
       setIsUploadModalOpen(false);
+      setUploadResult({
+        imported: newItems.length,
+        matched: matchedCount,
+        skipped: skippedCount,
+      });
     } catch (error) {
       setIsMatching(false);
       setUploadingItems(false);
@@ -325,27 +416,88 @@ export default function ExhibitDetail() {
 
   // ---- 导出 Excel ----
 
-  const handleExport = () => {
-    const data = items.map((item) => ({
-      场馆: item.venue,
-      摊位号: item.boothNumber,
-      制品名称: item.productName,
-      作者: item.author,
-      图片: item.imageUrl,
-      优先级: item.priority,
-      开摊信息: item.openInfo,
-      类型: item.type === "paid" ? "有料" : item.type === "free" ? "无料" : "",
-      状态: STATUS_TEXT[item.status],
-      单价: item.price,
-      数量: item.quantity,
-      实付: item.price && item.quantity ? item.price * item.quantity : null,
-      备注: item.note,
-    }));
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("心愿单");
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "心愿单");
-    XLSX.writeFile(wb, `${eventInfo?.name || eventId}_心愿单.xlsx`);
+      worksheet.columns = [
+        { header: "场馆", key: "venue", width: 8 },
+        { header: "摊位号", key: "boothNumber", width: 12 },
+        { header: "制品名称", key: "productName", width: 28 },
+        { header: "作者", key: "author", width: 18 },
+        { header: "图片", key: "image", width: 14 },
+        { header: "图片链接", key: "imageUrl", width: 32 },
+        { header: "优先级", key: "priority", width: 10 },
+        { header: "开摊信息", key: "openInfo", width: 18 },
+        { header: "类型", key: "type", width: 10 },
+        { header: "状态", key: "status", width: 12 },
+        { header: "单价", key: "price", width: 10 },
+        { header: "数量", key: "quantity", width: 8 },
+        { header: "实付", key: "total", width: 10 },
+        { header: "备注", key: "note", width: 18 },
+        { header: "详情", key: "description", width: 40 },
+      ];
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).height = 22;
+
+      for (const item of items) {
+        const row = worksheet.addRow({
+          venue: item.venue,
+          boothNumber: item.boothNumber,
+          productName: item.productName,
+          author: item.author,
+          image: item.imageUrl ? "见图" : "",
+          imageUrl: item.imageUrl || "",
+          priority: item.priority,
+          openInfo: item.openInfo,
+          type: item.type === "paid" ? "有料" : item.type === "free" ? "无料" : "",
+          status: STATUS_TEXT[item.status],
+          price: item.price,
+          quantity: item.quantity,
+          total: item.price && item.quantity ? item.price * item.quantity : null,
+          note: item.note,
+          description: item.description,
+        });
+        row.height = 58;
+
+        if (item.imageUrl) {
+          const image = await imageUrlToExcelImage(item.imageUrl);
+          if (image) {
+            const imageId = workbook.addImage(image);
+            worksheet.addImage(imageId, {
+              tl: { col: 4.15, row: row.number - 0.85 },
+              ext: { width: 48, height: 48 },
+            });
+          }
+        }
+      }
+
+      worksheet.eachRow((row) => {
+        row.alignment = { vertical: "middle", wrapText: true };
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${eventInfo?.name || eventId}_心愿单.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("导出失败:", error);
+      alert("导出失败: " + (error as Error).message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   // ---- 搜索 + 排序 + 分页 ----
@@ -364,17 +516,28 @@ export default function ExhibitDetail() {
     }
 
     const sorted = [...filtered].sort((a, b) => {
+      const boothCompare = a.boothNumber.localeCompare(b.boothNumber, "zh-Hans-CN", {
+        numeric: true,
+        sensitivity: "base",
+      });
+
       if (desktopSortMode === "hot") {
         // 按热度排序（降序）
         const aHot = a.hotCount || 0;
         const bHot = b.hotCount || 0;
         if (aHot !== bHot) return bHot - aHot;
-        return a.boothNumber.localeCompare(b.boothNumber, "zh");
+        return boothCompare;
       }
-      // 按优先级排序
-      const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
-      const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
-      return aP - bP;
+
+      if (desktopSortMode === "priority") {
+        const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
+        const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
+        if (aP !== bP) return aP - bP;
+        return boothCompare;
+      }
+
+      // 默认按摊位号排序
+      return boothCompare;
     });
 
     const grouped: Record<string, WishItem[]> = {};
@@ -477,10 +640,11 @@ export default function ExhibitDetail() {
               </button>
               <button
                 onClick={handleExport}
+                disabled={exporting}
                 className="bg-emerald-600 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-emerald-700 transition-colors text-xs sm:text-sm flex items-center gap-1"
               >
                 <FileArrowDown className="w-4 h-4" />
-                <span className="hidden sm:inline">导出</span>
+                <span className="hidden sm:inline">{exporting ? "导出中..." : "导出"}</span>
               </button>
             </div>
           </div>
@@ -534,17 +698,17 @@ export default function ExhibitDetail() {
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-slate-500 whitespace-nowrap">排序：</span>
             <button
-              onClick={() => setDesktopSortMode("priority")}
+              onClick={() => setDesktopSortMode((mode) => (mode === "priority" ? "default" : "priority"))}
               className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 desktopSortMode === "priority"
                   ? "bg-indigo-600 text-white"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               }`}
             >
-              按优先级
+              按优先级排序
             </button>
             <button
-              onClick={() => setDesktopSortMode("hot")}
+              onClick={() => setDesktopSortMode((mode) => (mode === "hot" ? "default" : "hot"))}
               className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1 ${
                 desktopSortMode === "hot"
                   ? "bg-indigo-600 text-white"
@@ -552,8 +716,11 @@ export default function ExhibitDetail() {
               }`}
             >
               <Flame className="w-3 h-3" />
-              按热度
+              按热度排序
             </button>
+            <span className="text-xs text-slate-400 whitespace-nowrap">
+              {desktopSortMode === "default" ? "默认按摊位号" : "再点已选排序恢复摊位号"}
+            </span>
           </div>
         </div>
 
@@ -561,13 +728,21 @@ export default function ExhibitDetail() {
         <div className="flex-1 min-h-0 flex flex-col pb-6">
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden flex-1 min-h-0 flex flex-col">
           {editMode && (
-            <div className="p-3 border-b border-slate-200 bg-slate-50">
+            <div className="p-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
               <button
                 onClick={handleAddItem}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors text-sm flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
                 添加新行
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedItemIds.size === 0}
+                className="bg-rose-600 text-white px-4 py-2 rounded-lg hover:bg-rose-700 transition-colors text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash className="w-4 h-4" />
+                删除选中{selectedItemIds.size > 0 ? ` ${selectedItemIds.size}` : ""}
               </button>
             </div>
           )}
@@ -576,6 +751,17 @@ export default function ExhibitDetail() {
             <table className="w-full border-collapse">
               <thead className="bg-slate-50 sticky top-0 z-10">
                 <tr>
+                  {editMode && (
+                    <Th width="44px">
+                      <input
+                        type="checkbox"
+                        checked={paginatedItems.length > 0 && paginatedItems.every((item) => selectedItemIds.has(item.id))}
+                        onChange={toggleSelectPage}
+                        aria-label="选择当前页"
+                        className="w-4 h-4 rounded border-slate-300"
+                      />
+                    </Th>
+                  )}
                   <Th width="50px">场馆</Th>
                   <Th width="70px">摊位号</Th>
                   <Th width="200px">制品名称</Th>
@@ -583,7 +769,6 @@ export default function ExhibitDetail() {
                   <Th width="60px">图片</Th>
                   <Th width="70px">优先级</Th>
                   <Th width="60px">热度</Th>
-                  <Th>详情</Th>
                   <Th width="100px">开摊信息</Th>
                   <Th width="60px">类型</Th>
                   <Th width="70px">状态</Th>
@@ -591,12 +776,24 @@ export default function ExhibitDetail() {
                   <Th width="50px">数量</Th>
                   <Th width="70px">实付</Th>
                   <Th width="100px">备注</Th>
+                  <Th width="90px">详情</Th>
                   {editMode && <Th stickyRight="0" width="50px">操作</Th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedItems.map((item) => (
                   <tr key={item.id} data-item-id={item.id} className="hover:bg-slate-50/60 transition-colors">
+                    {editMode && (
+                      <Td>
+                        <input
+                          type="checkbox"
+                          checked={selectedItemIds.has(item.id)}
+                          onChange={() => toggleSelectItem(item.id)}
+                          aria-label={`选择 ${item.productName}`}
+                          className="w-4 h-4 rounded border-slate-300"
+                        />
+                      </Td>
+                    )}
                     {/* 场馆 */}
                     <Td>
                       {editMode ? (
@@ -660,14 +857,6 @@ export default function ExhibitDetail() {
                         <Flame className="w-3.5 h-3.5 text-orange-500" />
                         <span className="text-sm font-medium text-slate-700">{item.hotCount || 0}</span>
                       </div>
-                    </Td>
-                    {/* 详情 */}
-                    <Td wrap>
-                      {item.description ? (
-                        <span className="text-slate-600 text-xs leading-relaxed break-words">{item.description}</span>
-                      ) : (
-                        <span className="text-slate-300 text-xs">-</span>
-                      )}
                     </Td>
                     {/* 开摊信息 */}
                     <Td>
@@ -743,6 +932,19 @@ export default function ExhibitDetail() {
                         <span className="text-slate-600">{item.note || "-"}</span>
                       )}
                     </Td>
+                    {/* 详情 */}
+                    <Td>
+                      {item.description ? (
+                        <button
+                          onClick={() => setDetailItem(item)}
+                          className="px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium whitespace-nowrap"
+                        >
+                          查看详情
+                        </button>
+                      ) : (
+                        <span className="text-slate-300 text-xs">-</span>
+                      )}
+                    </Td>
                     {/* 操作 */}
                     {editMode && (
                       <Td stickyRight="0">
@@ -783,7 +985,75 @@ export default function ExhibitDetail() {
             <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full" />
             <div className="text-center">
               <p className="text-slate-800 font-semibold text-lg">正在导入心愿单</p>
-              <p className="text-slate-500 text-sm mt-1">解析数据 → 匹配 CPP → 保存条目</p>
+              <p className="text-slate-500 text-sm mt-1">正在匹配展品信息（可能需要30s以上，请耐心等待）</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导入成功弹窗 */}
+      {uploadResult && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-emerald-600" weight="fill" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 font-display">导入成功</h2>
+                <p className="text-sm text-slate-500">心愿单已保存并同步</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">导入展品</span>
+                <span className="font-semibold text-slate-900">{uploadResult.imported} 件</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">匹配成功</span>
+                <span className="font-semibold text-emerald-600">{uploadResult.matched} 件</span>
+              </div>
+              {uploadResult.skipped > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">跳过重复</span>
+                  <span className="font-semibold text-amber-600">{uploadResult.skipped} 件</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setUploadResult(null)}
+              className="mt-5 w-full bg-indigo-600 text-white py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 详情弹窗 */}
+      {detailItem && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[80vh] shadow-2xl flex flex-col">
+            <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 font-display">{detailItem.productName}</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  {detailItem.boothNumber} · {detailItem.author || "未知作者"}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetailItem(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 overflow-auto">
+              <p className="text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words">
+                {detailItem.description}
+              </p>
             </div>
           </div>
         </div>
@@ -803,8 +1073,8 @@ export default function ExhibitDetail() {
             {isMatching ? (
               <div className="text-center py-8">
                 <div className="animate-spin w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full mx-auto mb-4" />
-                <p className="text-slate-600 font-medium">正在匹配 CPP 数据...</p>
-                <p className="text-slate-400 text-sm mt-1">自动填充图片和作者信息</p>
+                <p className="text-slate-600 font-medium">正在匹配展品信息</p>
+                <p className="text-slate-400 text-sm mt-1">可能需要30s以上，请耐心等待</p>
               </div>
             ) : (
               <div className="space-y-4">

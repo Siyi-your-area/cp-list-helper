@@ -5,7 +5,6 @@ import {
   MagnifyingGlass,
   X,
   ImageBroken,
-  CaretDown,
   Pencil,
   Check,
   Trash,
@@ -26,7 +25,7 @@ interface MobileTableViewProps {
 }
 
 type FilterMode = "all" | "unpurchased";
-type SortMode = "default" | "priority" | "booth" | "hot";
+type SortMode = "default" | "priority" | "hot";
 
 // ============================================================
 // 状态循环逻辑
@@ -116,24 +115,27 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
       result = result.filter((item) => getArea(item.boothNumber) === selectedArea);
     }
 
-    // 排序
-    if (sortMode === "priority") {
-      result.sort((a, b) => {
-        const ao = PRIORITY_ORDER[a.priority || ""] ?? 99;
-        const bo = PRIORITY_ORDER[b.priority || ""] ?? 99;
-        if (ao !== bo) return ao - bo;
-        return a.boothNumber.localeCompare(b.boothNumber, "zh");
+    // 排序：默认按摊位号，优先级/热度可切换/取消
+    result.sort((a, b) => {
+      const boothCompare = a.boothNumber.localeCompare(b.boothNumber, "zh-Hans-CN", {
+        numeric: true,
+        sensitivity: "base",
       });
-    } else if (sortMode === "hot") {
-      result.sort((a, b) => {
+
+      if (sortMode === "hot") {
         const aHot = a.hotCount || 0;
         const bHot = b.hotCount || 0;
         if (aHot !== bHot) return bHot - aHot;
-        return a.boothNumber.localeCompare(b.boothNumber, "zh");
-      });
-    } else if (sortMode === "booth") {
-      result.sort((a, b) => a.boothNumber.localeCompare(b.boothNumber, "zh"));
-    }
+      }
+
+      if (sortMode === "priority") {
+        const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
+        const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
+        if (aP !== bP) return aP - bP;
+      }
+
+      return boothCompare;
+    });
 
     return result;
   }, [items, searchQuery, filterMode, selectedArea, sortMode]);
@@ -226,11 +228,23 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
         </button>
         <div className="relative">
           <button
-            onClick={() => setSortMode(sortMode === "default" ? "priority" : sortMode === "priority" ? "hot" : sortMode === "hot" ? "booth" : "default")}
-            className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 whitespace-nowrap flex items-center gap-1"
+            onClick={() => setSortMode(sortMode === "priority" ? "default" : "priority")}
+            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex items-center gap-1 ${
+              sortMode === "priority" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"
+            }`}
           >
-            {sortMode === "default" ? "默认排序" : sortMode === "priority" ? "优先级" : sortMode === "hot" ? "热度" : "摊位号"}
-            {sortMode === "hot" ? <Flame className="w-3 h-3 text-orange-500" weight="fill" /> : <CaretDown className="w-3 h-3" />}
+            优先级
+          </button>
+        </div>
+        <div className="relative">
+          <button
+            onClick={() => setSortMode(sortMode === "hot" ? "default" : "hot")}
+            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex items-center gap-1 ${
+              sortMode === "hot" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            热度
+            <Flame className={`w-3 h-3 ${sortMode === "hot" ? "text-white" : "text-slate-400"}`} weight={sortMode === "hot" ? "fill" : "regular"} />
           </button>
         </div>
       </div>

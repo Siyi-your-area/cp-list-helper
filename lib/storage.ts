@@ -37,9 +37,10 @@ export function createExhibit(name: string, _venue: string, date: string): Exhib
 export async function createExhibitAsync(
   id: string,
   name: string,
-  days: { id: string; name: string }[]
+  days: { id: string; name: string }[],
+  cppEventId?: string
 ): Promise<Exhibit> {
-  return createExhibitInDB(id, name, days);
+  return createExhibitInDB(id, name, days, cppEventId);
 }
 
 export function deleteExhibit(id: string): boolean {

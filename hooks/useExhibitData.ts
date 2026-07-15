@@ -17,7 +17,7 @@ import { supabase } from "@/lib/supabase";
  */
 export function useExhibitData(eventId: string) {
   const [items, setItems] = useState<WishItem[]>([]);
-  const [eventInfo, setEventInfo] = useState<{ name: string; date: string } | null>(null);
+  const [eventInfo, setEventInfo] = useState<{ name: string; date: string; cppEventId?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 加载数据
@@ -31,7 +31,7 @@ export function useExhibitData(eventId: string) {
         // 加载展会信息
         const { data: eventData } = await supabase
           .from("events")
-          .select("name, days")
+          .select("name, days, cpp_event_id")
           .eq("id", eventId)
           .single();
 
@@ -40,6 +40,7 @@ export function useExhibitData(eventId: string) {
           setEventInfo({
             name: eventData.name,
             date: days.map((d: any) => d.name).join(" / "),
+            cppEventId: eventData.cpp_event_id || undefined,
           });
         }
 

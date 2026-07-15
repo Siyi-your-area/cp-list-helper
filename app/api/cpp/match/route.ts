@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMatchIndex, MatchIndex } from "@/lib/cpp-matcher";
-import { getCPPItems, searchCPPItems } from "@/lib/db-service";
+import { getCPPItems, resolveCPPMatchScope, searchCPPItems } from "@/lib/db-service";
 import type { NormalizedCPPItem, MatchInput, MatchResult } from "@/lib/types";
 
 // ---- 数据缓存（避免每次请求都查数据库）----
@@ -8,18 +8,19 @@ import type { NormalizedCPPItem, MatchInput, MatchResult } from "@/lib/types";
 const indexCache = new Map<string, { index: MatchIndex; time: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 分钟
 
-async function getIndex(eventId: string): Promise<MatchIndex> {
+async function getIndex(eventId: string, dayIds?: string[]): Promise<MatchIndex> {
   const now = Date.now();
-  const cached = indexCache.get(eventId);
+  const cacheKey = `${eventId}|${(dayIds || []).join(",")}`;
+  const cached = indexCache.get(cacheKey);
   if (cached && now - cached.time < CACHE_TTL) {
     return cached.index;
   }
 
-  const items = await getCPPItems(eventId);
+  const items = await getCPPItems(eventId, dayIds);
   const index = new MatchIndex(items);
-  indexCache.set(eventId, { index, time: now });
+  indexCache.set(cacheKey, { index, time: now });
 
-  console.log(`[CPP Match] ${eventId} 加载数据完成，共 ${index.size} 条`);
+  console.log(`[CPP Match] ${eventId} ${dayIds?.join(",") || "全部日期"} 加载数据完成，共 ${index.size} 条`);
   return index;
 }
 
@@ -176,7 +177,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const items: MatchInput[] = body.items || [];
-    const eventId: string = body.eventId || "cp32";
+    const scope = await resolveCPPMatchScope(body.eventId || "cp32");
+    const eventId = scope.eventId;
+    const dayIds = scope.dayIds;
 
     if (items.length === 0) {
       return NextResponse.json({ results: [], stats: {} });
@@ -190,7 +193,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 第一轮：Supabase 数据匹配
-    const index = await getIndex(eventId);
+    const index = await getIndex(eventId, dayIds);
     const results: MatchResult[] = index.matchBatch(items);
 
     // 第二轮：未匹配的条目，用 Supabase 搜索 API 查找
@@ -230,7 +233,7 @@ export async function POST(request: NextRequest) {
         const batch = taskEntries.slice(b, b + batchSize);
         await Promise.all(
           batch.map(async (task) => {
-            const freshItems = await searchCPPItems(eventId, task.keyword);
+            const freshItems = await searchCPPItems(eventId, task.keyword, 50, dayIds);
             if (freshItems.length === 0) return;
 
             dbSearchCount += freshItems.length;
@@ -286,7 +289,7 @@ export async function POST(request: NextRequest) {
       }
 
       for (const [, task] of nameOnlyTasks) {
-        const freshItems = await searchCPPItems(eventId, task.keyword);
+        const freshItems = await searchCPPItems(eventId, task.keyword, 50, dayIds);
         if (freshItems.length === 0) continue;
 
         // 找到同摊位或名称最接近的
@@ -426,13 +429,15 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const booth = searchParams.get("booth");
-    const eventId = searchParams.get("event") || "cp32";
+    const scope = await resolveCPPMatchScope(searchParams.get("event") || "cp32");
+    const eventId = scope.eventId;
+    const dayIds = scope.dayIds;
 
     if (!booth) {
       return NextResponse.json({ error: "缺少 booth 参数" }, { status: 400 });
     }
 
-    const items = await getCPPItems(eventId);
+    const items = await getCPPItems(eventId, dayIds);
     const index = new MatchIndex(items);
     const boothItems = index.getByBooth(booth);
 

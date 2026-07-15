@@ -10,6 +10,7 @@ export interface Exhibit {
   name: string;
   venue: string;
   date: string;
+  cppEventId?: string;      // 对应 CPP 数据库中的 event_id（如 "cp32"）
   items: WishItem[];
   cppData?: CPPDataItem[]; // 已废弃，保留兼容
   shareCode?: string;       // 分享码（4位字母数字）
@@ -81,6 +82,7 @@ export interface NormalizedCPPItem {
   imageUrl: string;          // CDN URL
   tags: string[];            // ["罗小黑战记"]
   eventName: string;         // "CP32-一期"
+  dayId?: string;            // CPP 活动日 ID（如 7040=一期，7042=二期）
   sourceUrl: string;         // CPP 详情页链接
   doujinshiId: number;
   // 新增字段

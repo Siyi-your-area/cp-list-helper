@@ -14,13 +14,16 @@ import {
   Spinner,
   Link,
   Warning,
+  UploadSimple,
 } from "@phosphor-icons/react";
-import type { Exhibit } from "@/lib/types";
+import type { Exhibit, MatchResult, WishItem } from "@/lib/types";
 import {
   getExhibitsAsync,
-  createExhibitAsync,
+  createWishItemsAsync,
   deleteExhibitAsync,
 } from "@/lib/storage";
+import { getClientId } from "@/lib/client-id";
+import { parseExcelFile } from "@/lib/excel-parser";
 
 /**
  * 预设展会信息
@@ -58,23 +61,30 @@ export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedExhibit, setSelectedExhibit] = useState("");
   const [listName, setListName] = useState("");
+  const [createUploadFile, setCreateUploadFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Exhibit | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [clientId, setClientId] = useState("");
 
-  // ---- 邀请码加入 ----
+  // ---- 清单识别码加入 ----
   const [inviteCode, setInviteCode] = useState("");
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState("");
 
   useEffect(() => {
-    loadExhibits();
+    setClientId(getClientId());
   }, []);
+
+  useEffect(() => {
+    if (!clientId) return;
+    loadExhibits();
+  }, [clientId]);
 
   async function loadExhibits() {
     try {
       setLoading(true);
-      const data = await getExhibitsAsync();
+      const data = await getExhibitsAsync(clientId);
       setExhibits(data);
     } catch (error) {
       console.error("加载展会失败:", error);
@@ -104,12 +114,85 @@ export default function Home() {
 
     try {
       setCreating(true);
+      const uploadInputs = createUploadFile ? await parseExcelFile(createUploadFile) : [];
+      if (createUploadFile && uploadInputs.length === 0) {
+        throw new Error("上传文件中没有找到心愿单数据，请检查文件格式");
+      }
+
       const listId = `${preset.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      await createExhibitAsync(listId, trimmedListName, preset.days, preset.cppEventId);
+      const createResponse = await fetch("/api/exhibits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: listId,
+          name: trimmedListName,
+          days: preset.days,
+          cppEventId: preset.cppEventId,
+          clientId,
+        }),
+      });
+      const createResult = await createResponse.json();
+      if (!createResponse.ok) {
+        throw new Error(createResult.error || "创建心愿单失败");
+      }
+
+      let importError: Error | null = null;
+      if (uploadInputs.length > 0) {
+        try {
+        let results: MatchResult[] = [];
+        try {
+          const response = await fetch("/api/cpp/match", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ items: uploadInputs, eventId: listId }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            results = data.results || [];
+          }
+        } catch (error) {
+          console.warn("创建时自动匹配失败，将保留原始上传内容:", error);
+        }
+
+        const importedItems: Omit<WishItem, "id">[] = [];
+        for (let index = 0; index < uploadInputs.length; index += 1) {
+          const input = uploadInputs[index];
+          const result = results[index];
+          const cppItem = result?.cppItem;
+          const isFree =
+            cppItem?.exchangeType?.includes("无料") ||
+            cppItem?.tags?.some((tag) => tag.includes("无料")) ||
+            cppItem?.productName?.includes("无料");
+          const item: Omit<WishItem, "id"> = {
+            boothNumber: input.boothNumber,
+            productName: input.productName,
+            author: input.author || cppItem?.author || "",
+            imageUrl: cppItem?.imageUrl || "",
+            venue: input.boothNumber.charAt(0) || "",
+            type: isFree ? "free" : "paid",
+            status: isFree ? "待领取" : "pending",
+            hotCount: cppItem?.hotCount || 0,
+            description: cppItem?.description || "",
+            matchedCPPItem: cppItem,
+            matchConfidence: result?.confidence,
+          };
+          importedItems.push(item);
+        }
+        await createWishItemsAsync(listId, importedItems);
+        } catch (error) {
+          importError = error instanceof Error ? error : new Error("导入心愿单失败");
+          console.error("创建成功，但导入心愿单失败:", error);
+        }
+      }
+
       setIsModalOpen(false);
       setSelectedExhibit("");
       setListName("");
+      setCreateUploadFile(null);
       await loadExhibits();
+      if (importError) {
+        alert(`心愿单已创建，但上传内容导入失败：${importError.message}`);
+      }
     } catch (error: any) {
       alert("创建失败: " + error.message);
     } finally {
@@ -121,7 +204,7 @@ export default function Home() {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
-      await deleteExhibitAsync(deleteTarget.id);
+      await deleteExhibitAsync(deleteTarget.id, clientId);
       setDeleteTarget(null);
       await loadExhibits();
     } catch (error: any) {
@@ -134,11 +217,11 @@ export default function Home() {
   const handleJoinByCode = async () => {
     const code = inviteCode.trim().toUpperCase();
     if (code.length !== 4) {
-      setJoinError("请输入 4 位邀请码");
+      setJoinError("请输入 4 位清单识别码");
       return;
     }
     if (!/^[A-HJ-NP-Z2-9]{4}$/.test(code)) {
-      setJoinError("邀请码格式不正确");
+      setJoinError("清单识别码格式不正确");
       return;
     }
 
@@ -149,12 +232,12 @@ export default function Home() {
       const response = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, clientId }),
       });
       const data = await response.json();
 
       if (!response.ok) {
-        setJoinError(data.error || "邀请码无效");
+        setJoinError(data.error || "清单识别码无效");
         return;
       }
 
@@ -171,7 +254,7 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
                 <Target className="w-5 h-5 text-white" weight="bold" />
@@ -185,7 +268,7 @@ export default function Home() {
             </div>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2 active:scale-[0.98]"
+              className="w-full sm:w-auto bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center justify-center gap-2 active:scale-[0.98]"
             >
               <Plus className="w-4 h-4" weight="bold" />
               <span>创建心愿单</span>
@@ -209,7 +292,7 @@ export default function Home() {
             <h2 className="text-xl font-semibold text-slate-700 mb-2 font-display">还没有心愿单</h2>
             <p className="text-slate-500 text-sm mb-8">点击上方按钮创建第一个心愿单</p>
 
-            {/* 邀请码加入（即使没有展会也显示） */}
+            {/* 清单识别码加入（即使没有展会也显示） */}
             <InviteCodeCard
               code={inviteCode}
               setCode={setInviteCode}
@@ -220,7 +303,7 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {/* 邀请码加入卡片 */}
+            {/* 清单识别码加入卡片 */}
             <InviteCodeCard
               code={inviteCode}
               setCode={setInviteCode}
@@ -293,6 +376,7 @@ export default function Home() {
                   setIsModalOpen(false);
                   setSelectedExhibit("");
                   setListName("");
+                  setCreateUploadFile(null);
                 }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
@@ -308,7 +392,7 @@ export default function Home() {
                   value={listName}
                   onChange={(e) => setListName(e.target.value.slice(0, 50))}
                   maxLength={50}
-                  placeholder="例如：Siyi 的 CP32 一期 list"
+                  placeholder="例如：熊的CP32大买一场"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
                 />
                 <div className="mt-1 text-right text-xs text-slate-400">{listName.length}/50</div>
@@ -339,6 +423,22 @@ export default function Home() {
                   </div>
                 </div>
               )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  上传心愿单 <span className="font-normal text-slate-400">（可选）</span>
+                </label>
+                <label className="w-full px-3.5 py-3 border border-dashed border-slate-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50/40 transition-colors cursor-pointer flex items-center gap-2 text-sm text-slate-600">
+                  <UploadSimple className="w-5 h-5 text-indigo-500 shrink-0" />
+                  <span className="truncate">{createUploadFile?.name || "选择 Excel 或 CSV 文件"}</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(event) => setCreateUploadFile(event.target.files?.[0] || null)}
+                  />
+                </label>
+                <p className="mt-1 text-xs text-slate-400">创建后会自动导入并匹配展品信息</p>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -355,6 +455,7 @@ export default function Home() {
                   setIsModalOpen(false);
                   setSelectedExhibit("");
                   setListName("");
+                  setCreateUploadFile(null);
                 }}
                 className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg hover:bg-slate-200 transition-colors font-medium"
               >
@@ -375,8 +476,15 @@ export default function Home() {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-display">
-                  确认删除{deleteTarget.name}这份list?
+                  {deleteTarget.accessRole === "owner"
+                    ? `确认删除${deleteTarget.name}这份list?`
+                    : `从我的列表移除${deleteTarget.name}?`}
                 </h2>
+                {deleteTarget.accessRole !== "owner" && (
+                  <p className="text-sm text-slate-500 mt-1">
+                    只会从当前设备移除，不会删除分享者的源 list。
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex gap-3">
@@ -404,7 +512,7 @@ export default function Home() {
 }
 
 // ============================================================
-// 邀请码输入卡片
+// 清单识别码输入卡片
 // ============================================================
 
 function InviteCodeCard({
@@ -424,9 +532,9 @@ function InviteCodeCard({
     <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-xl p-5 mb-6">
       <div className="flex items-center gap-2 mb-3">
         <Link className="w-5 h-5 text-indigo-600" weight="bold" />
-        <h3 className="text-sm font-semibold text-indigo-900">输入邀请码加入展会</h3>
+        <h3 className="text-sm font-semibold text-indigo-900">使用清单识别码打开心愿单</h3>
       </div>
-      <div className="flex gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
         <input
           type="text"
           value={code}
@@ -438,14 +546,14 @@ function InviteCodeCard({
             }
           }}
           onKeyDown={(e) => e.key === "Enter" && onJoin()}
-          placeholder="请输入4位邀请码"
+          placeholder="4位清单识别码"
           maxLength={4}
-          className="flex-1 px-4 py-2.5 border border-indigo-200 rounded-lg bg-white text-center text-lg font-mono font-bold tracking-widest text-indigo-900 placeholder-slate-300 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          className="w-full min-w-0 px-4 py-2.5 border border-indigo-200 rounded-lg bg-white text-center text-lg font-mono font-bold tracking-widest text-indigo-900 placeholder-slate-300 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
         />
         <button
           onClick={onJoin}
           disabled={joinLoading || code.length !== 4}
-          className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+          className="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
         >
           {joinLoading ? <Spinner className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
           加入

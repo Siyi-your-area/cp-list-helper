@@ -12,12 +12,33 @@ import type { Exhibit, WishItem, NormalizedCPPItem, MatchInput, MatchResult, Mat
 // ============================================================
 
 /**
- * 获取所有展会
+ * 获取当前设备可见的展会
  */
-export async function getExhibitsFromDB(): Promise<Exhibit[]> {
+export async function getExhibitsFromDB(clientId?: string): Promise<Exhibit[]> {
+  if (!clientId) return [];
+
+  const { data: accessRows, error: accessError } = await supabase
+    .from("event_access")
+    .select("event_id, role")
+    .eq("client_id", clientId);
+
+  if (accessError) {
+    if (accessError.code === "42P01" || accessError.message?.includes("event_access")) {
+      return [];
+    }
+    throw accessError;
+  }
+
+  const eventIds = Array.from(new Set((accessRows || []).map((row: any) => row.event_id).filter(Boolean)));
+  if (eventIds.length === 0) return [];
+  const accessRoleByEventId = new Map(
+    (accessRows || []).map((row: any) => [row.event_id, row.role as "owner" | "viewer"])
+  );
+
   const { data: events, error } = await supabase
     .from("events")
     .select("*")
+    .in("id", eventIds)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -41,6 +62,7 @@ export async function getExhibitsFromDB(): Promise<Exhibit[]> {
       date: dateStr,
       items: (wishItems || []).map((w: any) => ({ id: w.id } as WishItem)),
       shareCode: event.share_code || undefined,
+      accessRole: accessRoleByEventId.get(event.id) || "viewer",
       cppEventId: event.cpp_event_id || undefined,
       cppData: undefined,
       createdAt: new Date(event.created_at).getTime(),
@@ -58,7 +80,8 @@ export async function createExhibitInDB(
   id: string,
   name: string,
   days: { id: string; name: string }[],
-  cppEventId?: string
+  cppEventId?: string,
+  clientId?: string
 ): Promise<Exhibit> {
   const { error } = await supabase.from("events").upsert({
     id,
@@ -69,6 +92,10 @@ export async function createExhibitInDB(
   });
 
   if (error) throw error;
+
+  if (clientId) {
+    await grantEventAccess(id, clientId, "owner");
+  }
 
   return {
     id,
@@ -86,13 +113,42 @@ export async function createExhibitInDB(
  * 删除用户创建的 list：删除心愿单和展会入口，不删 CPP 原始展品数据。
  * 展会入口删除后，share_code 也会一起失效。
  */
-export async function deleteExhibitFromDB(id: string): Promise<boolean> {
+export async function deleteExhibitFromDB(id: string, clientId?: string): Promise<boolean> {
+  if (clientId) {
+    const { data: accessRow, error: accessError } = await supabase
+      .from("event_access")
+      .select("role")
+      .eq("event_id", id)
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    if (accessError) throw accessError;
+
+    if (accessRow?.role !== "owner") {
+      const { error: removeAccessError } = await supabase
+        .from("event_access")
+        .delete()
+        .eq("event_id", id)
+        .eq("client_id", clientId);
+
+      if (removeAccessError) throw removeAccessError;
+      return true;
+    }
+  }
+
   const { error: itemsError } = await supabase
     .from("wish_items")
     .delete()
     .eq("event_id", id);
 
   if (itemsError) throw itemsError;
+
+  const { error: accessDeleteError } = await supabase
+    .from("event_access")
+    .delete()
+    .eq("event_id", id);
+
+  if (accessDeleteError) throw accessDeleteError;
 
   const { error: eventError } = await supabase
     .from("events")
@@ -101,6 +157,55 @@ export async function deleteExhibitFromDB(id: string): Promise<boolean> {
 
   if (eventError) throw eventError;
   return true;
+}
+
+export async function grantEventAccess(
+  eventId: string,
+  clientId: string,
+  role: "owner" | "viewer"
+): Promise<void> {
+  const { data: existing, error: existingError } = await supabase
+    .from("event_access")
+    .select("role")
+    .eq("event_id", eventId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (existing?.role === "owner") return;
+
+  const { error } = await supabase
+    .from("event_access")
+    .upsert(
+      {
+        event_id: eventId,
+        client_id: clientId,
+        role,
+      },
+      { onConflict: "event_id,client_id" }
+    );
+
+  if (error) throw error;
+}
+
+export async function hasEventAccess(eventId: string, clientId?: string): Promise<boolean> {
+  if (!clientId) return false;
+
+  const { data, error } = await supabase
+    .from("event_access")
+    .select("event_id")
+    .eq("event_id", eventId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "42P01" || error.message?.includes("event_access")) {
+      return false;
+    }
+    throw error;
+  }
+
+  return Boolean(data);
 }
 
 // ============================================================
@@ -182,16 +287,101 @@ export async function updateWishItem(
   if (updates.hotCount !== undefined) row.hot_count = updates.hotCount;
   if (updates.description !== undefined) row.description = updates.description;
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("wish_items")
     .update(row)
     .eq("event_id", eventId)
-    .eq("id", itemId)
-    .select()
-    .single();
+    .eq("id", itemId);
 
   if (error) throw error;
+
+  const { data, error: readError } = await supabase
+    .from("wish_items")
+    .select("*")
+    .eq("event_id", eventId)
+    .eq("id", itemId)
+    .maybeSingle();
+
+  if (readError) throw readError;
+  if (!data) {
+    throw new Error("更新后未找到对应条目，请刷新页面后重试");
+  }
+
   return dbRowToWishItem(data);
+}
+
+/**
+ * 一次插入多条心愿单条目。
+ */
+export async function createWishItems(
+  eventId: string,
+  items: Omit<WishItem, "id" | "createdAt" | "updatedAt">[]
+): Promise<WishItem[]> {
+  if (items.length === 0) return [];
+
+  const rows = items.map((item, index) => ({
+    event_id: eventId,
+    booth_number: item.boothNumber,
+    product_name: item.productName,
+    author: item.author || null,
+    image_url: item.imageUrl || null,
+    item_type: item.type || "paid",
+    status: item.status || "pending",
+    priority: item.priority || null,
+    note: item.note || null,
+    price: item.price ?? null,
+    quantity: item.quantity ?? 1,
+    purchase_limit: item.purchaseLimit ?? null,
+    sort_order: index,
+    cpp_item_id: item.matchedCPPItem?.doujinshiId || null,
+    hot_count: item.hotCount ?? null,
+    description: item.description || null,
+  }));
+
+  const { data, error } = await supabase
+    .from("wish_items")
+    .insert(rows)
+    .select("*");
+
+  if (error) throw error;
+  return (data || []).map(dbRowToWishItem);
+}
+
+/**
+ * 一次性保存多条完整的心愿单草稿。
+ */
+export async function saveWishItemDrafts(
+  eventId: string,
+  items: WishItem[]
+): Promise<WishItem[]> {
+  if (items.length === 0) return [];
+
+  const rows = items.map((item) => ({
+    id: item.id,
+    event_id: eventId,
+    booth_number: item.boothNumber,
+    product_name: item.productName,
+    author: item.author || null,
+    image_url: item.imageUrl || null,
+    item_type: item.type || "paid",
+    status: item.status || "pending",
+    priority: item.priority || null,
+    note: item.note || null,
+    price: item.price ?? null,
+    quantity: item.quantity ?? 1,
+    purchase_limit: item.purchaseLimit ?? null,
+    cpp_item_id: item.matchedCPPItem?.doujinshiId || null,
+    hot_count: item.hotCount ?? null,
+    description: item.description || null,
+  }));
+
+  const { data, error } = await supabase
+    .from("wish_items")
+    .upsert(rows, { onConflict: "id" })
+    .select("*");
+
+  if (error) throw error;
+  return (data || []).map(dbRowToWishItem);
 }
 
 /**
@@ -224,6 +414,19 @@ export async function deleteWishItem(eventId: string, itemId: string): Promise<b
     .delete()
     .eq("event_id", eventId)
     .eq("id", itemId);
+
+  if (error) throw error;
+  return true;
+}
+
+export async function deleteWishItems(eventId: string, itemIds: string[]): Promise<boolean> {
+  if (itemIds.length === 0) return true;
+
+  const { error } = await supabase
+    .from("wish_items")
+    .delete()
+    .eq("event_id", eventId)
+    .in("id", itemIds);
 
   if (error) throw error;
   return true;

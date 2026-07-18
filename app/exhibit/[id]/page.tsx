@@ -28,6 +28,7 @@ import { STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
 import { parseExcelFile } from "@/lib/excel-parser";
 import { useExhibitData } from "@/hooks/useExhibitData";
 import { MobileTableView } from "@/components/MobileTableView";
+import { getClientId } from "@/lib/client-id";
 
 const PAGE_SIZE = 100;
 
@@ -121,9 +122,13 @@ export default function ExhibitDetail() {
     items,
     eventInfo,
     loading,
+    accessDenied,
     addItem,
     updateItem,
+    updateItemLocally,
+    saveItemDrafts,
     removeItem,
+    removeItems,
     addItems,
     refresh,
   } = useExhibitData(eventId);
@@ -141,6 +146,8 @@ export default function ExhibitDetail() {
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const dirtyItemIdsRef = useRef<Set<string>>(new Set());
+  const [savingEdits, setSavingEdits] = useState(false);
 
   // ---- 分享码 ----
   const [shareCode, setShareCode] = useState("");
@@ -148,7 +155,8 @@ export default function ExhibitDetail() {
 
   useEffect(() => {
     // 页面加载时获取/生成分享码
-    fetch(`/api/share?eventId=${eventId}`)
+    const clientId = getClientId();
+    fetch(`/api/share?eventId=${encodeURIComponent(eventId)}&clientId=${encodeURIComponent(clientId)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.code && data.code !== "NEED_MIGRATION") {
@@ -204,9 +212,7 @@ export default function ExhibitDetail() {
     if (ids.length === 0) return;
     if (!confirm(`确定删除选中的 ${ids.length} 行吗？`)) return;
 
-    for (const id of ids) {
-      await removeItem(id);
-    }
+    await removeItems(ids);
     setSelectedItemIds(new Set());
   };
 
@@ -267,6 +273,43 @@ export default function ExhibitDetail() {
       console.error(`更新失败 [${field}=${value}]:`, error);
       alert("更新失败: " + (error as Error).message);
     }
+  };
+
+  const handleDraftItem = (id: string, field: keyof WishItem, value: any) => {
+    const updates: Partial<WishItem> = { [field]: value };
+    if (field === "type" && value === "free") {
+      updates.status = "待领取";
+      updates.price = undefined;
+    }
+    if (field === "type" && value === "paid") {
+      updates.status = "pending";
+    }
+    dirtyItemIdsRef.current.add(id);
+    updateItemLocally(id, updates);
+  };
+
+  const handleToggleEditMode = async () => {
+    if (!editMode) {
+      dirtyItemIdsRef.current.clear();
+      setEditMode(true);
+      return;
+    }
+
+    try {
+      setSavingEdits(true);
+      await saveItemDrafts(Array.from(dirtyItemIdsRef.current));
+      dirtyItemIdsRef.current.clear();
+      setEditMode(false);
+    } catch (error) {
+      alert("保存失败: " + (error as Error).message);
+    } finally {
+      setSavingEdits(false);
+    }
+  };
+
+  const handleSaveMobileItem = async (item: WishItem) => {
+    updateItemLocally(item.id, item);
+    await saveItemDrafts([item]);
   };
 
   // ---- 图片上传 ----
@@ -588,6 +631,28 @@ export default function ExhibitDetail() {
     return <div className="min-h-screen flex items-center justify-center">加载中...</div>;
   }
 
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm max-w-sm w-full p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+            <Package className="w-6 h-6 text-slate-400" />
+          </div>
+          <h1 className="text-lg font-bold text-slate-900 mb-2">无法查看这份心愿单</h1>
+          <p className="text-sm text-slate-500 leading-6 mb-5">
+            当前设备还没有加入这份 list。请回到首页输入四位清单识别码后再查看。
+          </p>
+          <button
+            onClick={() => router.push("/")}
+            className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+          >
+            回到首页
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
       {/* Header */}
@@ -605,12 +670,12 @@ export default function ExhibitDetail() {
                 <h1 className="text-lg sm:text-2xl font-bold text-slate-900 font-display">{eventInfo?.name || eventId}</h1>
                 <p className="text-slate-500 text-xs sm:text-sm">{eventInfo?.date || ""}</p>
               </div>
-              {/* 分享码 */}
+              {/* 清单识别码 */}
               {shareCode && (
                 <button
                   onClick={handleCopyShareCode}
                   className="ml-2 flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors group"
-                  title="点击复制邀请码"
+                  title="点击复制清单识别码"
                 >
                   <span className="text-sm font-mono font-bold text-amber-700 tracking-wider">{shareCode}</span>
                   {copied ? (
@@ -623,13 +688,14 @@ export default function ExhibitDetail() {
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2">
               <button
-                onClick={() => setEditMode(!editMode)}
+                onClick={() => void handleToggleEditMode()}
+                disabled={savingEdits}
                 className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium transition-colors text-xs sm:text-sm flex items-center gap-1 ${
                   editMode ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
                 {editMode ? <Check className="w-4 h-4" weight="bold" /> : <Pencil className="w-4 h-4" />}
-                <span className="hidden sm:inline">{editMode ? "编辑中" : "编辑模式"}</span>
+                <span className="hidden sm:inline">{savingEdits ? "保存中..." : editMode ? "保存并退出" : "编辑模式"}</span>
               </button>
               <button
                 onClick={() => setIsUploadModalOpen(true)}
@@ -657,6 +723,7 @@ export default function ExhibitDetail() {
         <MobileTableView
           items={items}
           onUpdateItem={handleUpdateItem}
+          onSaveItem={handleSaveMobileItem}
           onRemoveItem={handleDeleteItem}
         />
       </div>
@@ -797,7 +864,7 @@ export default function ExhibitDetail() {
                     {/* 场馆 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={item.venue || ""} onChange={(e) => handleUpdateItem(item.id, "venue", e.target.value)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.venue || ""} onChange={(e) => handleDraftItem(item.id, "venue", e.target.value)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span className="font-medium text-slate-700">{item.venue || "-"}</span>
                       )}
@@ -805,7 +872,7 @@ export default function ExhibitDetail() {
                     {/* 摊位号 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={item.boothNumber} onChange={(e) => handleUpdateItem(item.id, "boothNumber", e.target.value)} className="w-20 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.boothNumber} onChange={(e) => handleDraftItem(item.id, "boothNumber", e.target.value)} className="w-20 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span className="font-medium text-indigo-600">{item.boothNumber}</span>
                       )}
@@ -813,7 +880,7 @@ export default function ExhibitDetail() {
                     {/* 制品名称 */}
                     <Td maxWidth="200px" wrap>
                       {editMode ? (
-                        <input type="text" value={item.productName} onChange={(e) => handleUpdateItem(item.id, "productName", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.productName} onChange={(e) => handleDraftItem(item.id, "productName", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span className="break-words">{item.productName}</span>
                       )}
@@ -821,7 +888,7 @@ export default function ExhibitDetail() {
                     {/* 作者 */}
                     <Td maxWidth="120px" wrap>
                       {editMode ? (
-                        <input type="text" value={item.author || ""} onChange={(e) => handleUpdateItem(item.id, "author", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.author || ""} onChange={(e) => handleDraftItem(item.id, "author", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span className="text-slate-600 break-words">{item.author || "-"}</span>
                       )}
@@ -837,7 +904,7 @@ export default function ExhibitDetail() {
                     {/* 优先级 */}
                     <Td>
                       {editMode ? (
-                        <select value={item.priority || "随缘"} onChange={(e) => handleUpdateItem(item.id, "priority", e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-sm">
+                        <select value={item.priority || "随缘"} onChange={(e) => handleDraftItem(item.id, "priority", e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-sm">
                           <option value="首摊">首摊</option>
                           <option value="次摊">次摊</option>
                           <option value="P1">P1</option>
@@ -861,7 +928,7 @@ export default function ExhibitDetail() {
                     {/* 开摊信息 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={item.openInfo || ""} onChange={(e) => handleUpdateItem(item.id, "openInfo", e.target.value)} placeholder="开摊时间、限购等" className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.openInfo || ""} onChange={(e) => handleDraftItem(item.id, "openInfo", e.target.value)} placeholder="开摊时间、限购等" className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span className="text-slate-600">{item.openInfo || "-"}</span>
                       )}
@@ -869,7 +936,7 @@ export default function ExhibitDetail() {
                     {/* 类型 */}
                     <Td>
                       {editMode ? (
-                        <select value={item.type || "paid"} onChange={(e) => handleUpdateItem(item.id, "type", e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-sm">
+                        <select value={item.type || "paid"} onChange={(e) => handleDraftItem(item.id, "type", e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-sm">
                           <option value="paid">有料</option>
                           <option value="free">无料</option>
                         </select>
@@ -882,7 +949,7 @@ export default function ExhibitDetail() {
                     {/* 状态 */}
                     <Td>
                       {editMode ? (
-                        <select value={item.status} onChange={(e) => handleUpdateItem(item.id, "status", e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-sm">
+                        <select value={item.status} onChange={(e) => handleDraftItem(item.id, "status", e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg text-sm">
                           {item.type === "free" ? (
                             <>
                               <option value="待领取">待领取</option>
@@ -905,7 +972,7 @@ export default function ExhibitDetail() {
                     {/* 单价 */}
                     <Td>
                       {item.type === "free" ? "-" : editMode ? (
-                        <input type="number" value={item.price || ""} onChange={(e) => handleUpdateItem(item.id, "price", parseFloat(e.target.value) || undefined)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" placeholder="¥" />
+                        <input type="number" value={item.price || ""} onChange={(e) => handleDraftItem(item.id, "price", parseFloat(e.target.value) || undefined)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" placeholder="¥" />
                       ) : (
                         <span>{item.price ? `¥${item.price}` : "-"}</span>
                       )}
@@ -913,7 +980,7 @@ export default function ExhibitDetail() {
                     {/* 数量 */}
                     <Td>
                       {editMode ? (
-                        <input type="number" value={item.quantity || ""} onChange={(e) => handleUpdateItem(item.id, "quantity", parseInt(e.target.value) || undefined)} className="w-12 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="number" value={item.quantity || ""} onChange={(e) => handleDraftItem(item.id, "quantity", parseInt(e.target.value) || undefined)} className="w-12 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span>{item.quantity || "-"}</span>
                       )}
@@ -927,7 +994,7 @@ export default function ExhibitDetail() {
                     {/* 备注 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={item.note || ""} onChange={(e) => handleUpdateItem(item.id, "note", e.target.value)} className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.note || ""} onChange={(e) => handleDraftItem(item.id, "note", e.target.value)} className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
                         <span className="text-slate-600">{item.note || "-"}</span>
                       )}

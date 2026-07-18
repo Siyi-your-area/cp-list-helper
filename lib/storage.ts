@@ -11,8 +11,11 @@ import {
   deleteExhibitFromDB,
   getWishItems,
   createWishItem,
+  createWishItems,
   updateWishItem,
+  saveWishItemDrafts,
   deleteWishItem,
+  deleteWishItems,
   batchUpdateWishItems,
 } from "./db-service";
 
@@ -25,8 +28,8 @@ export function getExhibits(): Exhibit[] {
   return [];
 }
 
-export async function getExhibitsAsync(): Promise<Exhibit[]> {
-  return getExhibitsFromDB();
+export async function getExhibitsAsync(clientId?: string): Promise<Exhibit[]> {
+  return getExhibitsFromDB(clientId);
 }
 
 export function createExhibit(name: string, _venue: string, date: string): Exhibit {
@@ -38,9 +41,10 @@ export async function createExhibitAsync(
   id: string,
   name: string,
   days: { id: string; name: string }[],
-  cppEventId?: string
+  cppEventId?: string,
+  clientId?: string
 ): Promise<Exhibit> {
-  return createExhibitInDB(id, name, days, cppEventId);
+  return createExhibitInDB(id, name, days, cppEventId, clientId);
 }
 
 export function deleteExhibit(id: string): boolean {
@@ -48,8 +52,8 @@ export function deleteExhibit(id: string): boolean {
   throw new Error("请使用 deleteExhibitAsync");
 }
 
-export async function deleteExhibitAsync(id: string): Promise<boolean> {
-  return deleteExhibitFromDB(id);
+export async function deleteExhibitAsync(id: string, clientId?: string): Promise<boolean> {
+  return deleteExhibitFromDB(id, clientId);
 }
 
 // ============================================================
@@ -67,6 +71,13 @@ export async function createWishItemAsync(
   return createWishItem(eventId, item);
 }
 
+export async function createWishItemsAsync(
+  eventId: string,
+  items: Omit<WishItem, "id">[]
+): Promise<WishItem[]> {
+  return createWishItems(eventId, items);
+}
+
 export async function updateWishItemAsync(
   eventId: string,
   itemId: string,
@@ -75,8 +86,19 @@ export async function updateWishItemAsync(
   return updateWishItem(eventId, itemId, updates);
 }
 
+export async function saveWishItemDraftsAsync(
+  eventId: string,
+  items: WishItem[]
+): Promise<WishItem[]> {
+  return saveWishItemDrafts(eventId, items);
+}
+
 export async function deleteWishItemAsync(eventId: string, itemId: string): Promise<boolean> {
   return deleteWishItem(eventId, itemId);
+}
+
+export async function deleteWishItemsAsync(eventId: string, itemIds: string[]): Promise<boolean> {
+  return deleteWishItems(eventId, itemIds);
 }
 
 export async function batchUpdateWishItemsAsync(

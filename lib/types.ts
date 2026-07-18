@@ -14,6 +14,7 @@ export interface Exhibit {
   items: WishItem[];
   cppData?: CPPDataItem[]; // 已废弃，保留兼容
   shareCode?: string;       // 分享码（4位字母数字）
+  accessRole?: "owner" | "viewer"; // 当前设备对这份 list 的访问关系
   createdAt: number;
   updatedAt: number;
 }

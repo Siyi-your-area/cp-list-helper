@@ -21,6 +21,7 @@ import { STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
 interface MobileTableViewProps {
   items: WishItem[];
   onUpdateItem: (id: string, field: keyof WishItem, value: any) => void;
+  onSaveItem: (item: WishItem) => Promise<void>;
   onRemoveItem: (id: string) => void;
 }
 
@@ -77,13 +78,14 @@ function getStatusColor(status: string): string {
 // 组件
 // ============================================================
 
-export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTableViewProps) {
+export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem }: MobileTableViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [sortMode, setSortMode] = useState<SortMode>("default");
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [drawerItem, setDrawerItem] = useState<WishItem | null>(null);
   const [drawerEditing, setDrawerEditing] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   // ---- 过滤 + 排序 ----
@@ -165,8 +167,37 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
 
   const handleDrawerUpdate = (field: keyof WishItem, value: any) => {
     if (!drawerItem) return;
-    onUpdateItem(drawerItem.id, field, value);
     setDrawerItem((prev) => (prev && prev.id === drawerItem.id ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleDrawerSave = async () => {
+    if (!drawerItem) return;
+    try {
+      await onSaveItem(drawerItem);
+      setDrawerEditing(false);
+    } catch (error) {
+      alert("保存失败: " + (error as Error).message);
+    }
+  };
+
+  const handleDrawerImageInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("请选择图片文件");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("图片大小不能超过 5MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      handleDrawerUpdate("imageUrl", dataUrl);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleDrawerDelete = () => {
@@ -285,7 +316,11 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
             {processedItems.map((item) => (
               <div
                 key={item.id}
-                onClick={() => setDrawerItem(item)}
+                onClick={() => {
+                  setDrawerItem(item);
+                  setDrawerEditing(true);
+                  setDetailsExpanded(false);
+                }}
                 className="flex items-center border-b border-slate-100 active:bg-slate-50 transition-colors"
                 style={{ minHeight: 56 }}
               >
@@ -357,11 +392,11 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
           {/* 遮罩 */}
           <div
             className="absolute inset-0 bg-black/40"
-            onClick={() => { setDrawerItem(null); setDrawerEditing(false); }}
+            onClick={() => { setDrawerItem(null); setDrawerEditing(false); setDetailsExpanded(false); }}
           />
 
           {/* 抽屉内容 */}
-          <div className="relative bg-white rounded-t-2xl max-h-[85vh] flex flex-col animate-slide-up">
+          <div className="relative bg-white rounded-t-2xl max-h-[92dvh] flex flex-col animate-slide-up">
             {/* 拖拽条 */}
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-10 h-1 rounded-full bg-slate-300" />
@@ -369,16 +404,16 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
 
             {/* 关闭按钮 */}
             <button
-              onClick={() => { setDrawerItem(null); setDrawerEditing(false); }}
-              className="absolute top-3 right-4 text-slate-400 hover:text-slate-600"
+              onClick={() => { setDrawerItem(null); setDrawerEditing(false); setDetailsExpanded(false); }}
+              className="absolute top-3 right-4 z-20 w-10 h-10 rounded-full bg-white/95 shadow-sm border border-slate-100 text-slate-500 hover:text-slate-700 flex items-center justify-center"
             >
-              <X className="w-5 h-5" />
+              <X className="w-6 h-6" />
             </button>
 
             {/* 可滚动内容 */}
-            <div className="overflow-y-auto flex-1 px-4 pb-6">
+            <div className="overflow-y-auto flex-1 px-4 pb-28">
               {/* 大图 + 上传按钮 */}
-              <div className="relative w-full aspect-square max-h-64 bg-slate-100 rounded-xl overflow-hidden mb-4 flex items-center justify-center">
+              <div className="relative w-full h-56 bg-slate-100 rounded-xl overflow-hidden mb-4 flex items-center justify-center">
                 {drawerItem.imageUrl ? (
                   <img
                     src={drawerItem.imageUrl}
@@ -389,34 +424,28 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                   <ImageBroken className="w-12 h-12 text-slate-300" />
                 )}
                 {/* 上传按钮 */}
-                <label className="absolute bottom-2 right-2 bg-white/90 backdrop-blur-sm p-2 rounded-full shadow-lg cursor-pointer active:scale-95 transition-transform">
-                  <Camera className="w-5 h-5 text-slate-700" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        if (!file.type.startsWith("image/")) {
-                          alert("请选择图片文件");
-                          return;
-                        }
-                        if (file.size > 5 * 1024 * 1024) {
-                          alert("图片大小不能超过 5MB");
-                          return;
-                        }
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          const dataUrl = ev.target?.result as string;
-                          handleDrawerUpdate("imageUrl", dataUrl);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                  />
-                </label>
+                <div className="absolute bottom-2 right-2 flex gap-2">
+                  <label className="bg-white/95 backdrop-blur-sm px-3 py-2 rounded-full shadow-lg cursor-pointer active:scale-95 transition-transform flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                    <Camera className="w-4 h-4" />
+                    拍照
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => handleDrawerImageInput(e)}
+                    />
+                  </label>
+                  <label className="bg-white/95 backdrop-blur-sm px-3 py-2 rounded-full shadow-lg cursor-pointer active:scale-95 transition-transform flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                    相册
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleDrawerImageInput(e)}
+                    />
+                  </label>
+                </div>
               </div>
 
               {/* 基本信息 */}
@@ -450,14 +479,6 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                   <div className="text-sm text-slate-500">{drawerItem.author}</div>
                 )}
               </div>
-
-              {/* 详情 */}
-              {drawerItem.description && (
-                <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-lg">
-                  <div className="text-xs text-amber-800 font-medium mb-1">展品详情</div>
-                  <div className="text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">{drawerItem.description}</div>
-                </div>
-              )}
 
               {/* ---- 单价 / 数量 / 状态（紧跟商品信息，无需滚动） ---- */}
               {drawerItem.type === "free" ? (
@@ -524,30 +545,10 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                 </div>
               )}
 
-              {/* 编辑模式 vs 查看模式 */}
-              {drawerEditing ? (
-                <div className="space-y-3 mb-4">
-                  <EditField label="摊位号" value={drawerItem.boothNumber} onChange={(v) => handleDrawerUpdate("boothNumber", v)} />
-                  <EditField label="商品名" value={drawerItem.productName} onChange={(v) => handleDrawerUpdate("productName", v)} />
-                  <EditField label="作者" value={drawerItem.author || ""} onChange={(v) => handleDrawerUpdate("author", v)} />
-                  <EditField label="备注" value={drawerItem.note || ""} onChange={(v) => handleDrawerUpdate("note", v)} multiline />
-                </div>
-              ) : (
-                <>
-                  {/* 备注 */}
-                  {drawerItem.note && (
-                    <div className="mb-4 p-3 bg-slate-50 rounded-lg">
-                      <div className="text-xs text-slate-400 mb-1">备注</div>
-                      <div className="text-sm text-slate-700">{drawerItem.note}</div>
-                    </div>
-                  )}
-                </>
-              )}
-
               {/* ---- 状态切换按钮 ---- */}
               <div className="mb-4">
                 <div className="text-xs text-slate-400 mb-2">状态</div>
-                <div className="flex gap-2 flex-wrap">
+                <div className="grid grid-cols-2 gap-2">
                   {(drawerItem.type === "free"
                     ? [
                         { value: "待领取", label: "待领取" },
@@ -562,7 +563,7 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                     <button
                       key={opt.value}
                       onClick={() => handleDrawerUpdate("status", opt.value)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                         drawerItem.status === opt.value
                           ? "bg-indigo-600 text-white"
                           : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -574,12 +575,57 @@ export function MobileTableView({ items, onUpdateItem, onRemoveItem }: MobileTab
                   ))}
                 </div>
               </div>
+
+              {/* 编辑模式 vs 查看模式 */}
+              {drawerEditing ? (
+                <div className="space-y-3 mb-4">
+                  {drawerItem.type !== "free" && (
+                    <EditField label="备注" value={drawerItem.note || ""} onChange={(v) => handleDrawerUpdate("note", v)} multiline />
+                  )}
+                  <EditField label="制品名称" value={drawerItem.productName} onChange={(v) => handleDrawerUpdate("productName", v)} />
+                  <EditField label="作者" value={drawerItem.author || ""} onChange={(v) => handleDrawerUpdate("author", v)} />
+                </div>
+              ) : (
+                <>
+                  {/* 备注 */}
+                  {drawerItem.note && (
+                    <div className="mb-4 p-3 bg-slate-50 rounded-lg">
+                      <div className="text-xs text-slate-400 mb-1">备注</div>
+                      <div className="text-sm text-slate-700">{drawerItem.note}</div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* 详情 */}
+              {drawerItem.description && (
+                <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50 overflow-hidden">
+                  <button
+                    onClick={() => setDetailsExpanded((value) => !value)}
+                    className="w-full px-3 py-2.5 flex items-center justify-between text-left"
+                  >
+                    <span className="text-sm text-amber-800 font-medium">展品详情</span>
+                    <span className="text-xs text-amber-700">{detailsExpanded ? "收起" : "展开"}</span>
+                  </button>
+                  {detailsExpanded && (
+                    <div className="px-3 pb-3 text-sm text-amber-900 leading-relaxed whitespace-pre-wrap">
+                      {drawerItem.description}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ---- 底部操作栏 ---- */}
-            <div className="border-t border-slate-200 px-4 py-3 flex gap-2">
+            <div className="border-t border-slate-200 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] flex gap-2">
               <button
-                onClick={() => setDrawerEditing(!drawerEditing)}
+                onClick={() => {
+                  if (drawerEditing) {
+                    void handleDrawerSave();
+                  } else {
+                    setDrawerEditing(true);
+                  }
+                }}
                 className={`flex-1 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors ${
                   drawerEditing
                     ? "bg-green-600 text-white"

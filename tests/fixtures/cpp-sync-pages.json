@@ -1,0 +1,41 @@
+{
+  "test-day:36:1": {
+    "total": 2,
+    "list": [
+      {
+        "doujinshiId": 900001,
+        "doujinshiName": "【新刊】同步测试一",
+        "authorList": [{ "authorName": "测试作者" }],
+        "coverPicUrl": "/test/one.jpg",
+        "tag": "原创|漫画",
+        "hotCount": 12,
+        "themeAlias": "原创",
+        "eventList": [
+          {
+            "eventID": "test-day",
+            "position": "测A01测A02",
+            "circleName": "测试社团",
+            "eventName": "Test Event"
+          }
+        ]
+      },
+      {
+        "doujinshiId": 900002,
+        "doujinshiName": "同步测试二",
+        "authorList": [{ "authorName": "作者二" }],
+        "coverPicUrl": "",
+        "tag": "",
+        "hotCount": 0,
+        "themeAlias": "",
+        "eventList": [
+          {
+            "eventID": "test-day",
+            "position": "测B03",
+            "circleName": "测试社团二",
+            "eventName": "Test Event"
+          }
+        ]
+      }
+    ]
+  }
+}

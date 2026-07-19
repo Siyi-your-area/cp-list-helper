@@ -6,6 +6,54 @@
 
 import { supabase } from "./supabase";
 import type { Exhibit, WishItem, NormalizedCPPItem, MatchInput, MatchResult, MatchConfidence } from "./types";
+import { createCompatibleUUID } from "./client-id";
+
+function databaseErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const value = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+    return [value.message, value.details, value.hint, value.code]
+      .filter(Boolean)
+      .map(String)
+      .join("；");
+  }
+  return String(error || "数据库请求失败");
+}
+
+function isTransientDatabaseError(error: unknown): boolean {
+  const message = databaseErrorMessage(error).toLowerCase();
+  return [
+    "failed to fetch",
+    "fetch failed",
+    "network",
+    "timeout",
+    "timed out",
+    "connection",
+    "502",
+    "503",
+    "504",
+    "429",
+  ].some((part) => message.includes(part));
+}
+
+async function withTransientRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientDatabaseError(error) || attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)));
+    }
+  }
+  throw new Error(databaseErrorMessage(lastError));
+}
 
 // ============================================================
 // 展会管理
@@ -320,6 +368,7 @@ export async function createWishItems(
   if (items.length === 0) return [];
 
   const rows = items.map((item, index) => ({
+    id: createCompatibleUUID(),
     event_id: eventId,
     booth_number: item.boothNumber,
     product_name: item.productName,
@@ -338,13 +387,15 @@ export async function createWishItems(
     description: item.description || null,
   }));
 
-  const { data, error } = await supabase
-    .from("wish_items")
-    .insert(rows)
-    .select("*");
+  return withTransientRetry(async () => {
+    const { data, error } = await supabase
+      .from("wish_items")
+      .upsert(rows, { onConflict: "id" })
+      .select("*");
 
-  if (error) throw error;
-  return (data || []).map(dbRowToWishItem);
+    if (error) throw error;
+    return (data || []).map(dbRowToWishItem);
+  });
 }
 
 /**
@@ -460,20 +511,96 @@ function dbRowToCPPItem(row: any): NormalizedCPPItem {
  * CP32 的 event_id 统一是 cp32，一期/二期用 day_id 区分。
  */
 export async function getCPPItems(eventId: string, dayIds?: string[]): Promise<NormalizedCPPItem[]> {
-  let query = supabase
-    .from("cpp_items")
-    .select("*")
-    .eq("event_id", eventId);
+  const rows: any[] = [];
+  const pageSize = 1000;
 
-  if (dayIds && dayIds.length > 0) {
-    query = query.in("day_id", dayIds);
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase
+      .from("cpp_items")
+      .select("*")
+      .eq("event_id", eventId)
+      .range(offset, offset + pageSize - 1);
+
+    if (dayIds && dayIds.length > 0) {
+      query = query.in("day_id", dayIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
   }
 
-  const { data, error } = await query;
+  return rows.map(dbRowToCPPItem);
+}
 
-  if (error) throw error;
+/**
+ * 按输入摊位批量读取第一阶段匹配候选，避免每次加载整个 CPP 数据集。
+ */
+export async function getCPPItemsByBooths(
+  eventId: string,
+  boothNumbers: string[],
+  dayIds?: string[],
+  doujinshiIds: number[] = []
+): Promise<NormalizedCPPItem[]> {
+  const uniqueBooths = Array.from(new Set(
+    boothNumbers
+      .flatMap((value) => [
+        value.trim(),
+        value.normalize("NFKC").replace(/\s+/g, ""),
+      ])
+      .filter(Boolean)
+  ));
+  const uniqueIds = Array.from(new Set(doujinshiIds.filter((value) => Number.isFinite(value))));
+  if (uniqueBooths.length === 0 && uniqueIds.length === 0) return [];
 
-  return (data || []).map(dbRowToCPPItem);
+  const rows: any[] = [];
+  const chunkSize = 40;
+  for (let index = 0; index < uniqueBooths.length; index += chunkSize) {
+    const chunk = uniqueBooths.slice(index, index + chunkSize);
+    let query = supabase
+      .from("cpp_items")
+      .select("*")
+      .eq("event_id", eventId)
+      .in("booth_number", chunk)
+      .limit(5000);
+
+    if (dayIds && dayIds.length > 0) {
+      query = query.in("day_id", dayIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+
+  for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+    const chunk = uniqueIds.slice(index, index + chunkSize);
+    let query = supabase
+      .from("cpp_items")
+      .select("*")
+      .eq("event_id", eventId)
+      .in("doujinshi_id", chunk)
+      .limit(5000);
+
+    if (dayIds && dayIds.length > 0) {
+      query = query.in("day_id", dayIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+
+  const seen = new Set<string>();
+  return rows
+    .filter((row) => {
+      const key = `${row.event_id}|${row.day_id}|${row.doujinshi_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(dbRowToCPPItem);
 }
 
 /**

@@ -29,6 +29,11 @@ import { parseExcelFile } from "@/lib/excel-parser";
 import { useExhibitData } from "@/hooks/useExhibitData";
 import { MobileTableView } from "@/components/MobileTableView";
 import { getClientId } from "@/lib/client-id";
+import {
+  buildReviewNote,
+  getVisibleWishNote,
+  parseReviewNote,
+} from "@/lib/match-review";
 
 const PAGE_SIZE = 100;
 
@@ -143,6 +148,9 @@ export default function ExhibitDetail() {
   const [desktopSortMode, setDesktopSortMode] = useState<"default" | "hot" | "priority">("default");
   const [uploadResult, setUploadResult] = useState<{ imported: number; matched: number; skipped: number } | null>(null);
   const [detailItem, setDetailItem] = useState<WishItem | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
+  const [resolvingReviews, setResolvingReviews] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -312,6 +320,121 @@ export default function ExhibitDetail() {
     await saveItemDrafts([item]);
   };
 
+  const reviewItems = useMemo(
+    () => items
+      .map((item) => ({ item, candidate: parseReviewNote(item.note) }))
+      .filter((entry): entry is {
+        item: WishItem;
+        candidate: NonNullable<ReturnType<typeof parseReviewNote>>;
+      } => Boolean(entry.candidate)),
+    [items]
+  );
+
+  const openReviewModal = () => {
+    setSelectedReviewIds(new Set());
+    setIsReviewModalOpen(true);
+  };
+
+  const toggleReviewSelection = (itemId: string) => {
+    setSelectedReviewIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const handleConfirmReviews = async (itemIds: string[]) => {
+    const targets = reviewItems.filter(({ item }) => itemIds.includes(item.id));
+    if (targets.length === 0) return;
+
+    try {
+      setResolvingReviews(true);
+      const response = await fetch("/api/cpp/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId,
+          items: targets.map(({ candidate }) => ({
+            boothNumber: candidate.boothNumber,
+            productName: candidate.productName,
+            doujinshiId: candidate.doujinshiId,
+          })),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "读取候选详情失败");
+      }
+
+      const drafts: WishItem[] = targets.map(({ item }, index) => {
+        const result = data.results?.[index] as MatchResult | undefined;
+        // 用户点击确认后，即使系统仍将其列为 review，也采用该候选。
+        const cppItem = result?.cppItem || result?.candidate;
+        if (!cppItem) {
+          throw new Error(`无法读取候选：${item.boothNumber} · ${item.productName}`);
+        }
+        const confirmedType = detectTypeFromCPP({
+          ...result,
+          matched: true,
+          cppItem,
+        } as MatchResult);
+        return {
+          ...item,
+          author: item.author || cppItem.author || "",
+          imageUrl: cppItem.imageUrl || item.imageUrl || "",
+          type: confirmedType,
+          status:
+            item.status === "pending" && confirmedType === "free"
+              ? "待领取"
+              : item.status,
+          hotCount: cppItem.hotCount || 0,
+          description: cppItem.description || "",
+          matchedCPPItem: cppItem,
+          matchConfidence: result?.confidence || "exact",
+          note: undefined,
+        };
+      });
+
+      await saveItemDrafts(drafts);
+      const confirmedIds = new Set(itemIds);
+      setSelectedReviewIds((current) => {
+        const next = new Set(current);
+        confirmedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (reviewItems.length === targets.length) setIsReviewModalOpen(false);
+    } catch (error) {
+      alert("确认匹配失败：" + (error as Error).message);
+    } finally {
+      setResolvingReviews(false);
+    }
+  };
+
+  const handleKeepOriginalReviews = async (itemIds: string[]) => {
+    const targets = reviewItems.filter(({ item }) => itemIds.includes(item.id));
+    if (targets.length === 0) return;
+    try {
+      setResolvingReviews(true);
+      await saveItemDrafts(targets.map(({ item }) => ({
+        ...item,
+        matchConfidence: "none" as const,
+        note: undefined,
+      })));
+      const ignoredIds = new Set(itemIds);
+      setSelectedReviewIds((current) => {
+        const next = new Set(current);
+        ignoredIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (reviewItems.length === targets.length) setIsReviewModalOpen(false);
+    } catch (error) {
+      alert("保留原始信息失败：" + (error as Error).message);
+    } finally {
+      setResolvingReviews(false);
+    }
+  };
+
   // ---- 图片上传 ----
 
   /**
@@ -368,16 +491,20 @@ export default function ExhibitDetail() {
   // ---- Excel 上传 + 自动匹配 ----
 
   const handleUploadExcel = async (file: File) => {
+    const uploadStartedAt = performance.now();
     try {
       setUploadResult(null);
       // 1. 解析 Excel
+      const parseStartedAt = performance.now();
       const inputs = await parseExcelFile(file);
+      const parseMs = performance.now() - parseStartedAt;
       if (inputs.length === 0) {
         alert("Excel 中没有找到数据，请检查文件格式");
         return;
       }
 
       // 2. 去重
+      const dedupeStartedAt = performance.now();
       const existingKeys = new Set(
         items.map((item) => `${item.boothNumber.trim()}|${item.productName.trim()}`)
       );
@@ -390,6 +517,7 @@ export default function ExhibitDetail() {
 
       const skippedCount = dedupedInputs.filter((d) => d._skipped).length;
       const newInputs = dedupedInputs.filter((d) => !d._skipped);
+      const dedupeMs = performance.now() - dedupeStartedAt;
 
       if (newInputs.length === 0) {
         alert(`导入的 ${inputs.length} 条数据已全部存在，无需重复添加`);
@@ -403,15 +531,27 @@ export default function ExhibitDetail() {
       setMatchStats(null);
 
       let results: MatchResult[] = [];
+      let responseStats: any = null;
+      let responseTimings: any = null;
       try {
+        const requestStartedAt = performance.now();
         const response = await fetch("/api/cpp/match", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: newInputs, eventId }),
+          body: JSON.stringify({
+            items: newInputs,
+            eventId,
+            clientTimings: { parseMs, dedupeMs },
+          }),
         });
         const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "匹配请求失败");
         results = data.results || [];
-        setMatchStats(data.stats);
+        responseStats = data.stats || {};
+        responseTimings = {
+          ...(data.timings || {}),
+          requestMs: performance.now() - requestStartedAt,
+        };
       } catch (err) {
         console.warn("API 匹配失败，使用无匹配模式:", err);
         results = newInputs.map(() => ({ matched: false, confidence: "none" as const, reason: "匹配服务不可用" }));
@@ -434,10 +574,36 @@ export default function ExhibitDetail() {
           description: result?.cppItem?.description || "",
           matchedCPPItem: result?.cppItem,
           matchConfidence: result?.confidence,
+          note: result?.requiresReview && result.candidate
+            ? buildReviewNote(result.candidate)
+            : result?.decision === "unmatched"
+              ? "待补充：未找到可靠的 CPP 匹配"
+              : undefined,
         };
       });
 
+      const persistStartedAt = performance.now();
       await addItems(newItems);
+      const persistMs = performance.now() - persistStartedAt;
+      const endToEndMs = performance.now() - uploadStartedAt;
+      setMatchStats({
+        ...(responseStats || {
+          total: newInputs.length,
+          matched: 0,
+          accepted: 0,
+          review: 0,
+          unmatched: newInputs.length,
+        }),
+        timings: {
+          ...(responseTimings || {}),
+          parseMs,
+          dedupeMs,
+          persistMs,
+          endToEndMs,
+          targetMs: 30_000,
+          withinTarget: endToEndMs <= 30_000,
+        },
+      });
 
       // 5. Loading 完成，关闭弹窗
       setUploadingItems(false);
@@ -502,7 +668,7 @@ export default function ExhibitDetail() {
           price: item.price,
           quantity: item.quantity,
           total: item.price && item.quantity ? item.price * item.quantity : null,
-          note: item.note,
+          note: getVisibleWishNote(item.note),
           description: item.description,
         });
         row.height = 58;
@@ -716,6 +882,27 @@ export default function ExhibitDetail() {
           </div>
         </div>
       </header>
+
+      {reviewItems.length > 0 && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50">
+          <div className="max-w-7xl mx-auto px-3 py-2.5 sm:px-6 lg:px-8 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-amber-900">
+                有 {reviewItems.length} 条候选需要确认
+              </p>
+              <p className="text-xs text-amber-700 truncate">
+                确认后会补充 CPP 图片、作者、热度和展品详情；也可以保留原始上传信息。
+              </p>
+            </div>
+            <button
+              onClick={openReviewModal}
+              className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+            >
+              去确认
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main content area - fills remaining height */}
       {/* 手机端视图 */}
@@ -994,9 +1181,9 @@ export default function ExhibitDetail() {
                     {/* 备注 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={item.note || ""} onChange={(e) => handleDraftItem(item.id, "note", e.target.value)} className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={getVisibleWishNote(item.note)} onChange={(e) => handleDraftItem(item.id, "note", e.target.value)} className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span className="text-slate-600">{item.note || "-"}</span>
+                        <span className="text-slate-600">{getVisibleWishNote(item.note) || "-"}</span>
                       )}
                     </Td>
                     {/* 详情 */}
@@ -1099,6 +1286,118 @@ export default function ExhibitDetail() {
         </div>
       )}
 
+      {isReviewModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-5">
+          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 sm:p-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">确认 CPP 匹配候选</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  左侧是上传内容，右侧是 CPP 候选。确认后才会关联候选数据。
+                </p>
+              </div>
+              <button
+                onClick={() => setIsReviewModalOpen(false)}
+                disabled={resolvingReviews}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                aria-label="关闭待确认候选"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={
+                    reviewItems.length > 0 &&
+                    selectedReviewIds.size === reviewItems.length
+                  }
+                  onChange={(event) => {
+                    setSelectedReviewIds(
+                      event.target.checked
+                        ? new Set(reviewItems.map(({ item }) => item.id))
+                        : new Set()
+                    );
+                  }}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                />
+                全选（{reviewItems.length} 条）
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void handleKeepOriginalReviews(Array.from(selectedReviewIds))}
+                  disabled={resolvingReviews || selectedReviewIds.size === 0}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  批量保留原始
+                </button>
+                <button
+                  onClick={() => void handleConfirmReviews(Array.from(selectedReviewIds))}
+                  disabled={resolvingReviews || selectedReviewIds.size === 0}
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {resolvingReviews ? "处理中…" : "批量确认匹配"}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 overflow-y-auto p-4 sm:p-5">
+              {reviewItems.map(({ item, candidate }) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-slate-200 p-3 sm:p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedReviewIds.has(item.id)}
+                      onChange={() => toggleReviewSelection(item.id)}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600"
+                      aria-label={`选择 ${item.productName}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="mb-1 text-xs font-medium text-slate-500">上传内容</p>
+                          <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
+                          <p className="mt-1 text-xs text-slate-600">{item.boothNumber || "无摊位号"}</p>
+                        </div>
+                        <div className="rounded-lg bg-indigo-50 p-3">
+                          <p className="mb-1 text-xs font-medium text-indigo-600">CPP 候选</p>
+                          <p className="text-sm font-semibold text-slate-900">{candidate.productName}</p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {candidate.boothNumber}
+                            {candidate.doujinshiId ? ` · CPP ${candidate.doujinshiId}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          onClick={() => void handleKeepOriginalReviews([item.id])}
+                          disabled={resolvingReviews}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          保留原始
+                        </button>
+                        <button
+                          onClick={() => void handleConfirmReviews([item.id])}
+                          disabled={resolvingReviews}
+                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          确认匹配
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 详情弹窗 */}
       {detailItem && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-[110]">
@@ -1163,13 +1462,21 @@ export default function ExhibitDetail() {
                 {matchStats && (
                   <div className="bg-slate-50 rounded-lg p-4 text-sm space-y-1">
                     <p className="font-medium text-slate-700">上次匹配结果：</p>
-                    <p>共 {matchStats.total} 条，匹配成功 <span className="text-emerald-600 font-medium">{matchStats.matched}</span> 条</p>
+                    <p>共 {matchStats.total} 条，自动匹配 <span className="text-emerald-600 font-medium">{matchStats.matched}</span> 条</p>
                     <p className="text-xs text-slate-500">
-                      精确 {matchStats.exact} · 高置信 {matchStats.high} · 中置信 {matchStats.medium} · 低置信 {matchStats.low} · 未匹配 {matchStats.none}
+                      精确 {matchStats.exact || 0} · 高置信 {matchStats.high || 0} · 待确认 {matchStats.review || 0} · 未匹配 {matchStats.unmatched ?? matchStats.none ?? 0}
                     </p>
-                    {matchStats.fetchedFromAPI > 0 && (
+                    {matchStats.fromAPI > 0 && (
                       <p className="text-xs text-indigo-600">
-                        实时查询获取 {matchStats.fetchedFromAPI} 个新展品
+                        外部接口兜底匹配 {matchStats.fromAPI} 个展品
+                      </p>
+                    )}
+                    {matchStats.timings?.endToEndMs != null && (
+                      <p className={`text-xs ${matchStats.timings.withinTarget ? "text-emerald-600" : "text-amber-600"}`}>
+                        总耗时 {(matchStats.timings.endToEndMs / 1000).toFixed(1)} 秒
+                        （解析 {(matchStats.timings.parseMs / 1000).toFixed(1)}s ·
+                        匹配 {((matchStats.timings.requestMs || 0) / 1000).toFixed(1)}s ·
+                        落库 {(matchStats.timings.persistMs / 1000).toFixed(1)}s）
                       </p>
                     )}
                   </div>

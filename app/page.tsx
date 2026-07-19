@@ -24,6 +24,16 @@ import {
 } from "@/lib/storage";
 import { getClientId } from "@/lib/client-id";
 import { parseExcelFile } from "@/lib/excel-parser";
+import { buildReviewNote } from "@/lib/match-review";
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "");
+    if (message) return message;
+  }
+  return fallback;
+}
 
 /**
  * 预设展会信息
@@ -175,12 +185,17 @@ export default function Home() {
             description: cppItem?.description || "",
             matchedCPPItem: cppItem,
             matchConfidence: result?.confidence,
+            note: result?.requiresReview && result.candidate
+              ? buildReviewNote(result.candidate)
+              : result?.decision === "unmatched"
+                ? "待补充：未找到可靠的 CPP 匹配"
+                : undefined,
           };
           importedItems.push(item);
         }
         await createWishItemsAsync(listId, importedItems);
         } catch (error) {
-          importError = error instanceof Error ? error : new Error("导入心愿单失败");
+          importError = new Error(getErrorMessage(error, "导入心愿单失败"));
           console.error("创建成功，但导入心愿单失败:", error);
         }
       }

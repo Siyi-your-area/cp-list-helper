@@ -1,6 +1,6 @@
 const CLIENT_ID_KEY = "cp_list_client_id";
 
-function createClientId(): string {
+export function createCompatibleUUID(): string {
   const webCrypto = globalThis.crypto;
   if (typeof webCrypto?.randomUUID === "function") {
     return webCrypto.randomUUID();
@@ -36,7 +36,7 @@ export function getClientId(): string {
   const existing = window.localStorage.getItem(CLIENT_ID_KEY);
   if (existing) return existing;
 
-  const id = createClientId();
+  const id = createCompatibleUUID();
   window.localStorage.setItem(CLIENT_ID_KEY, id);
   return id;
 }

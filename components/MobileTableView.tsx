@@ -12,6 +12,7 @@ import {
   Flame,
 } from "@phosphor-icons/react";
 import type { WishItem } from "@/lib/types";
+import { getVisibleWishNote } from "@/lib/match-review";
 import { STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
 
 // ============================================================
@@ -580,7 +581,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
               {drawerEditing ? (
                 <div className="space-y-3 mb-4">
                   {drawerItem.type !== "free" && (
-                    <EditField label="备注" value={drawerItem.note || ""} onChange={(v) => handleDrawerUpdate("note", v)} multiline />
+                    <EditField label="备注" value={getVisibleWishNote(drawerItem.note)} onChange={(v) => handleDrawerUpdate("note", v)} multiline />
                   )}
                   <EditField label="制品名称" value={drawerItem.productName} onChange={(v) => handleDrawerUpdate("productName", v)} />
                   <EditField label="作者" value={drawerItem.author || ""} onChange={(v) => handleDrawerUpdate("author", v)} />
@@ -591,7 +592,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   {drawerItem.note && (
                     <div className="mb-4 p-3 bg-slate-50 rounded-lg">
                       <div className="text-xs text-slate-400 mb-1">备注</div>
-                      <div className="text-sm text-slate-700">{drawerItem.note}</div>
+                      <div className="text-sm text-slate-700">{getVisibleWishNote(drawerItem.note)}</div>
                     </div>
                   )}
                 </>

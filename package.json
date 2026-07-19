@@ -12,7 +12,10 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "start": "next start",
     "lint": "next lint",
-    "prepare:cpp": "node scripts/prepare-cpp-data.js"
+    "prepare:cpp": "node scripts/prepare-cpp-data.js",
+    "sync:cpp": "node scripts/sync-cpp-data.mjs",
+    "evaluate:matching": "node scripts/evaluate-matching.mjs",
+    "benchmark:matching": "node scripts/benchmark-wishlist.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

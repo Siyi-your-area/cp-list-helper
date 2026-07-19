@@ -1,85 +1,210 @@
 /**
- * CPP 匹配引擎
+ * CPP 两阶段匹配中的本地评分引擎。
  *
- * 将 Excel 中的心愿单条目与 CPP 展品数据进行匹配，支持多级模糊匹配。
- *
- * 匹配策略（优先级从高到低）：
- * 1. 精确匹配：摊位号 + 展品名称完全一致
- * 2. 标准化匹配：全角转半角、去空格后匹配
- * 3. 包含匹配：摊位号匹配 + 名称互相包含
- * 4. 作者匹配：摊位号匹配 + 作者一致
+ * 自动接受仅限 exact/high；medium/low 只作为人工确认候选返回，
+ * 防止用激进模糊匹配换取表面命中率。
  */
 
-import type { NormalizedCPPItem, MatchInput, MatchResult, MatchConfidence } from "./types";
+import type {
+  MatchConfidence,
+  MatchInput,
+  MatchResult,
+  MatchSource,
+  NormalizedCPPItem,
+} from "./types";
 
-// ---- 工具函数 ----
-
-/**
- * 标准化字符串：全角→半角、去空格、转小写
- */
-function normalize(str: string): string {
-  if (!str) return "";
-  return str
-    .replace(/[\s ]/g, "")
+export function normalizeMatchText(value: string): string {
+  if (!value) return "";
+  return value
     .normalize("NFKC")
+    .replace(/[\s\u00a0]+/g, "")
+    .replace(/[·•・—–－_\-~～,，。.!！?？:：;；'"“”‘’()[\]（）【】{}《》「」『』]/g, "")
     .toLowerCase();
 }
 
-/**
- * 拆分合并摊位号
- *
- * CPP 数据中部分摊位号是合并格式，如 "伍C21伍C22"、"陆G01陆G02"。
- * 用户 Excel 中通常只写其中一个（如 "伍C21"），需要拆分后分别索引。
- *
- * 匹配模式：中文字符 + 可选字母 + 数字
- */
-function splitBoothNumber(boothNumber: string): string[] {
-  if (!boothNumber) return [];
-  // 匹配：一个或多个中文字符 + 可选的大写字母 + 一个或多个数字
-  const parts = boothNumber.match(/[一-鿿]+[A-Z]?\d+/g);
-  return parts || [boothNumber];
+export function createMatchAliases(value: string): string[] {
+  if (!value) return [];
+  const aliases = new Set<string>();
+  const add = (candidate: string) => {
+    const normalized = normalizeMatchText(candidate);
+    if (normalized.length >= 2) aliases.add(normalized);
+  };
+
+  const removeLeadingLabels = (candidate: string) => {
+    let result = candidate.trim();
+    for (let index = 0; index < 4; index += 1) {
+      const next = result
+        .replace(/^\s*(?:【[^】]+】|\[[^\]]+\]|（[^）]+）|\([^)]+\))\s*/u, "")
+        .trim();
+      if (next === result) break;
+      result = next;
+    }
+    return result;
+  };
+  const removeMarketingWords = (candidate: string) => candidate
+    .replace(/(?:cp|comicup)\s*\d+(?:pre)?/gi, "")
+    .replace(/新刊|首发|场贩|通贩/g, "")
+    .trim();
+
+  add(value);
+  // 《书名》和「标题」通常是作品名；【图奈】【帝限】等方括号前缀更常见于
+  // 题材或属性标签，不能单独作为“名称完全一致”的依据。
+  for (const match of value.matchAll(/[《「『]([^》」』]+)[》」』]/g)) {
+    add(match[1]);
+  }
+  const withoutLeadingLabels = removeLeadingLabels(value);
+  add(withoutLeadingLabels);
+  add(removeMarketingWords(value));
+  add(removeMarketingWords(withoutLeadingLabels));
+  return Array.from(aliases);
 }
 
-/**
- * 计算两个字符串的相似度 (0-1)
- * 使用最长公共子序列的简化版本
- */
-function similarity(a: string, b: string): number {
+export function splitBoothNumber(boothNumber: string): string[] {
+  if (!boothNumber) return [];
+  return boothNumber.match(/[一-鿿]+[A-Z]?\d+/g) || [boothNumber];
+}
+
+function charSimilarity(left: string, right: string): number {
+  const a = normalizeMatchText(left);
+  const b = normalizeMatchText(right);
   if (!a || !b) return 0;
   if (a === b) return 1;
-
-  const na = normalize(a);
-  const nb = normalize(b);
-  if (na === nb) return 1;
-
-  // 包含关系给较高分
-  if (na.includes(nb) || nb.includes(na)) {
-    return Math.min(na.length, nb.length) / Math.max(na.length, nb.length);
+  if (a.includes(b) || b.includes(a)) {
+    return Math.min(a.length, b.length) / Math.max(a.length, b.length);
   }
 
-  // 字符集合交集比例
-  const setA = new Set(na.split(""));
-  const setB = new Set(nb.split(""));
-  let intersection = 0;
-  for (const c of setA) {
-    if (setB.has(c)) intersection++;
+  const pairs = (value: string) => {
+    const output = new Map<string, number>();
+    for (let index = 0; index < value.length - 1; index += 1) {
+      const pair = value.slice(index, index + 2);
+      output.set(pair, (output.get(pair) || 0) + 1);
+    }
+    return output;
+  };
+  if (a.length === 1 || b.length === 1) return a === b ? 1 : 0;
+
+  const leftPairs = pairs(a);
+  const rightPairs = pairs(b);
+  let overlap = 0;
+  for (const [pair, count] of leftPairs) {
+    overlap += Math.min(count, rightPairs.get(pair) || 0);
   }
-  const union = setA.size + setB.size - intersection;
-  return union > 0 ? intersection / union : 0;
+  return (2 * overlap) / ((a.length - 1) + (b.length - 1));
 }
 
-// ---- 索引构建 ----
+function maxAliasSimilarity(left: string[], right: string[]): number {
+  let best = 0;
+  for (const a of left) {
+    for (const b of right) {
+      best = Math.max(best, charSimilarity(a, b));
+    }
+  }
+  return best;
+}
 
-/**
- * 匹配索引，加速查找
- */
+interface ScoredCandidate {
+  item: NormalizedCPPItem;
+  score: number;
+  boothScore: number;
+  nameScore: number;
+  authorScore: number;
+  exactNameAlias: boolean;
+}
+
+function scoreCandidate(input: MatchInput, item: NormalizedCPPItem): ScoredCandidate {
+  const inputBooths = splitBoothNumber(input.boothNumber).map(normalizeMatchText);
+  const itemBooths = splitBoothNumber(item.boothNumber).map(normalizeMatchText);
+  const boothScore = maxAliasSimilarity(inputBooths, itemBooths);
+
+  const inputNames = createMatchAliases(input.productName);
+  const itemNames = createMatchAliases(item.productName);
+  const exactNameAlias = inputNames.some((alias) => itemNames.includes(alias));
+  const nameScore = exactNameAlias ? 1 : maxAliasSimilarity(inputNames, itemNames);
+
+  const authorScore = input.author
+    ? charSimilarity(input.author, item.author)
+    : 0;
+
+  return {
+    item,
+    score: (boothScore * 0.45) + (nameScore * 0.45) + (authorScore * 0.1),
+    boothScore,
+    nameScore,
+    authorScore,
+    exactNameAlias,
+  };
+}
+
+function resultFromCandidate(
+  candidate: ScoredCandidate,
+  source: MatchSource,
+  ambiguous: boolean
+): MatchResult {
+  const rawScore = Math.round(candidate.score * 1000) / 1000;
+  let confidence: MatchConfidence;
+  let accepted = false;
+
+  if (
+    !ambiguous &&
+    candidate.boothScore === 1 &&
+    candidate.exactNameAlias
+  ) {
+    confidence = "exact";
+    accepted = true;
+  } else if (
+    !ambiguous &&
+    candidate.boothScore >= 0.95 &&
+    (
+      // 同摊位、唯一候选下，允许“【漫本/新刊】Moments”与
+      // “【漫本】#3 Moments”这类仅差宣发标签/序号的名称自动通过。
+      candidate.nameScore >= 0.77 ||
+      (candidate.authorScore >= 0.9 && candidate.nameScore >= 0.68)
+    )
+  ) {
+    confidence = "high";
+    accepted = true;
+  } else if (rawScore >= 0.72) {
+    confidence = "medium";
+  } else {
+    confidence = "low";
+  }
+
+  const reason = [
+    `组合评分 ${(rawScore * 100).toFixed(1)}%`,
+    `摊位 ${(candidate.boothScore * 100).toFixed(0)}%`,
+    `名称 ${(candidate.nameScore * 100).toFixed(0)}%`,
+    ambiguous ? "候选接近，需人工确认" : "",
+  ].filter(Boolean).join("；");
+
+  if (accepted) {
+    return {
+      matched: true,
+      decision: "accepted",
+      confidence,
+      cppItem: candidate.item,
+      score: rawScore,
+      source,
+      reason,
+    };
+  }
+
+  return {
+    matched: false,
+    decision: "review",
+    confidence,
+    candidate: candidate.item,
+    score: rawScore,
+    source,
+    requiresReview: true,
+    reason,
+  };
+}
+
 export class MatchIndex {
-  // 精确查找表: "normalizedBooth|normalizedProduct" → item[]
-  private exactMap: Map<string, NormalizedCPPItem[]> = new Map();
-  // 摊位查找表: "normalizedBooth" → item[]
-  private boothMap: Map<string, NormalizedCPPItem[]> = new Map();
-  // 原始数据
-  private items: NormalizedCPPItem[];
+  private readonly idMap = new Map<number, NormalizedCPPItem>();
+  private readonly exactMap = new Map<string, NormalizedCPPItem[]>();
+  private readonly boothMap = new Map<string, NormalizedCPPItem[]>();
+  private readonly items: NormalizedCPPItem[];
 
   constructor(items: NormalizedCPPItem[]) {
     this.items = items;
@@ -88,34 +213,24 @@ export class MatchIndex {
 
   private buildIndex() {
     for (const item of this.items) {
-      // 精确索引：原始组合 + 拆分后的各部分
-      const normProduct = normalize(item.productName);
-      const boothParts = splitBoothNumber(item.boothNumber);
-      const boothKeys = new Set<string>();
-      boothKeys.add(normalize(item.boothNumber)); // 原始
-      for (const part of boothParts) {
-        boothKeys.add(normalize(part)); // 拆分后的每个部分
-      }
+      if (item.doujinshiId) this.idMap.set(item.doujinshiId, item);
+      const boothKeys = new Set(
+        [item.boothNumber, ...splitBoothNumber(item.boothNumber)]
+          .map(normalizeMatchText)
+          .filter(Boolean)
+      );
+      const productAliases = createMatchAliases(item.productName);
 
       for (const boothKey of boothKeys) {
-        const exactKey = `${boothKey}|${normProduct}`;
-        const existing = this.exactMap.get(exactKey);
-        if (existing) {
-          if (!existing.includes(item)) {
-            existing.push(item);
-          }
-        } else {
-          this.exactMap.set(exactKey, [item]);
-        }
+        const boothItems = this.boothMap.get(boothKey) || [];
+        if (!boothItems.includes(item)) boothItems.push(item);
+        this.boothMap.set(boothKey, boothItems);
 
-        // 摊位索引
-        const boothItems = this.boothMap.get(boothKey);
-        if (boothItems) {
-          if (!boothItems.includes(item)) {
-            boothItems.push(item);
-          }
-        } else {
-          this.boothMap.set(boothKey, [item]);
+        for (const productAlias of productAliases) {
+          const key = `${boothKey}|${productAlias}`;
+          const exactItems = this.exactMap.get(key) || [];
+          if (!exactItems.includes(item)) exactItems.push(item);
+          this.exactMap.set(key, exactItems);
         }
       }
     }
@@ -125,159 +240,114 @@ export class MatchIndex {
     return this.items.length;
   }
 
-  /**
-   * 匹配单条输入
-   */
-  match(input: MatchInput): MatchResult {
-    const normBooth = normalize(input.boothNumber);
-    const normProduct = normalize(input.productName);
-
-    // Level 1: 精确匹配
-    const exactKey = `${normBooth}|${normProduct}`;
-    const exactHits = this.exactMap.get(exactKey);
-    if (exactHits && exactHits.length > 0) {
-      return {
-        matched: true,
-        confidence: "exact",
-        cppItem: exactHits[0],
-        reason: "精确匹配",
-      };
-    }
-
-    // 获取同摊位的所有条目（用于后续匹配）
-    const boothItems = this.boothMap.get(normBooth) || [];
-
-    if (boothItems.length === 0) {
-      // 摊位号都没匹配到，尝试标准化匹配
-      // 可能是全角半角差异
-      for (const [key, items] of this.boothMap.entries()) {
-        if (key === normBooth) continue;
-        // 尝试模糊摊位号匹配
-        if (similarity(input.boothNumber, items[0]?.boothNumber || "") > 0.9) {
-          // 在这个摊位里找名称匹配的
-          const nameHit = items.find(
-            (item) =>
-              normalize(item.productName) === normProduct ||
-              normalize(item.productName).includes(normProduct) ||
-              normProduct.includes(normalize(item.productName))
-          );
-          if (nameHit) {
-            return {
-              matched: true,
-              confidence: "high",
-              cppItem: nameHit,
-              reason: `摊位号模糊匹配 (${items[0].boothNumber})`,
-            };
-          }
-        }
-      }
-
-      return { matched: false, confidence: "none", reason: "摊位号未匹配" };
-    }
-
-    // Level 2: 摊位号匹配 + 名称完全一致（标准化后）
-    const normProductHit = boothItems.find(
-      (item) => normalize(item.productName) === normProduct
-    );
-    if (normProductHit) {
-      return {
-        matched: true,
-        confidence: "high",
-        cppItem: normProductHit,
-        reason: "标准化匹配（全角/空格差异）",
-      };
-    }
-
-    // Level 3: 摊位号匹配 + 名称包含
-    const containHit = boothItems.find(
-      (item) => {
-        const np = normalize(item.productName);
-        return np.includes(normProduct) || normProduct.includes(np);
-      }
-    );
-    if (containHit) {
-      return {
-        matched: true,
-        confidence: "medium",
-        cppItem: containHit,
-        reason: "名称包含匹配",
-      };
-    }
-
-    // Level 4: 摊位号匹配 + 作者匹配
-    if (input.author) {
-      const normAuthor = normalize(input.author);
-      const authorHit = boothItems.find(
-        (item) => {
-          const itemAuthor = normalize(item.author);
-          return itemAuthor === normAuthor ||
-            itemAuthor.includes(normAuthor) ||
-            normAuthor.includes(itemAuthor);
-        }
-      );
-      if (authorHit) {
+  match(input: MatchInput, source: MatchSource = "database-index"): MatchResult {
+    if (input.doujinshiId) {
+      const byId = this.idMap.get(input.doujinshiId);
+      if (byId) {
         return {
           matched: true,
-          confidence: "low",
-          cppItem: authorHit,
-          reason: "作者匹配（名称不一致，需确认）",
+          decision: "accepted",
+          confidence: "exact",
+          cppItem: byId,
+          score: 1,
+          source,
+          reason: "CPP 唯一标识匹配",
         };
       }
     }
 
-    // Level 5: 摊位号匹配 + 名称相似度
-    let bestSimilarity = 0;
-    let bestItem: NormalizedCPPItem | null = null;
-    for (const item of boothItems) {
-      const sim = similarity(input.productName, item.productName);
-      if (sim > bestSimilarity && sim > 0.6) {
-        bestSimilarity = sim;
-        bestItem = item;
+    const boothKeys = new Set(
+      [input.boothNumber, ...splitBoothNumber(input.boothNumber)]
+        .map(normalizeMatchText)
+        .filter(Boolean)
+    );
+    const productAliases = createMatchAliases(input.productName);
+
+    // 摊位和完整名称完全一致时优先接受。公共【标签】不能再让不同商品
+    // 以相同分数挤进候选集合，覆盖真正的完整名称命中。
+    const fullName = normalizeMatchText(input.productName);
+    if (fullName) {
+      const fullNameCandidates = new Map<number, NormalizedCPPItem>();
+      for (const boothKey of boothKeys) {
+        for (const item of this.boothMap.get(boothKey) || []) {
+          if (normalizeMatchText(item.productName) === fullName) {
+            fullNameCandidates.set(item.doujinshiId, item);
+          }
+        }
+      }
+      if (fullNameCandidates.size > 0) {
+        const item = fullNameCandidates.values().next().value as NormalizedCPPItem;
+        return resultFromCandidate(scoreCandidate(input, item), source, false);
       }
     }
-    if (bestItem) {
+
+    const exactCandidates = new Set<NormalizedCPPItem>();
+    for (const boothKey of boothKeys) {
+      for (const alias of productAliases) {
+        for (const item of this.exactMap.get(`${boothKey}|${alias}`) || []) {
+          exactCandidates.add(item);
+        }
+      }
+    }
+    if (exactCandidates.size === 1) {
+      const item = Array.from(exactCandidates)[0];
+      return resultFromCandidate(scoreCandidate(input, item), source, false);
+    }
+
+    const candidates = new Set<NormalizedCPPItem>(exactCandidates);
+    for (const boothKey of boothKeys) {
+      for (const item of this.boothMap.get(boothKey) || []) candidates.add(item);
+    }
+    if (candidates.size === 0) {
       return {
-        matched: true,
-        confidence: "low",
-        cppItem: bestItem,
-        reason: `模糊匹配（相似度 ${(bestSimilarity * 100).toFixed(0)}%）`,
+        matched: false,
+        decision: "unmatched",
+        confidence: "none",
+        source,
+        reason: "数据库中没有对应摊位候选",
       };
     }
 
-    return {
-      matched: false,
-      confidence: "none",
-      reason: `摊位 ${input.boothNumber} 有 ${boothItems.length} 个展品，但无名称匹配`,
-    };
+    const scored = Array.from(candidates)
+      .map((item) => scoreCandidate(input, item))
+      .sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    if (!best || best.score < 0.6) {
+      return {
+        matched: false,
+        decision: "unmatched",
+        confidence: "none",
+        source,
+        reason: `找到 ${candidates.size} 个同摊位候选，但最高评分不足 60%`,
+      };
+    }
+
+    const nextDifferentProduct = scored.find(
+      (candidate, index) =>
+        index > 0 &&
+        candidate.item.doujinshiId !== best.item.doujinshiId
+    );
+    const ambiguous = Boolean(
+      nextDifferentProduct && best.score - nextDifferentProduct.score < 0.03
+    );
+    return resultFromCandidate(best, source, ambiguous);
   }
 
-  /**
-   * 批量匹配
-   */
-  matchBatch(inputs: MatchInput[]): MatchResult[] {
-    return inputs.map((input) => this.match(input));
+  matchBatch(inputs: MatchInput[], source: MatchSource = "database-index"): MatchResult[] {
+    return inputs.map((input) => this.match(input, source));
   }
 
-  /**
-   * 按摊位号查询所有展品
-   */
   getByBooth(boothNumber: string): NormalizedCPPItem[] {
-    return this.boothMap.get(normalize(boothNumber)) || [];
+    const items = new Set<NormalizedCPPItem>();
+    for (const part of [boothNumber, ...splitBoothNumber(boothNumber)]) {
+      for (const item of this.boothMap.get(normalizeMatchText(part)) || []) items.add(item);
+    }
+    return Array.from(items);
   }
 }
 
-// ---- 便捷函数 ----
-
-/**
- * 从原始 CPP 数据创建匹配索引（支持 raw 格式和 normalized 格式）
- *
- * 判断逻辑：有 doujinshiId → 已经是 normalized 格式（即使有 participationInfo）
- * 否则 → 原始格式，需要从 participationInfo 展开
- */
 export function createMatchIndex(rawItems: any[]): MatchIndex {
-  // 检查是否已经是 normalized 格式
   if (rawItems.length > 0 && (rawItems[0].doujinshiId || rawItems[0].doujinshi_id)) {
-    // 已经是 NormalizedCPPItem[]，直接使用
     return new MatchIndex(rawItems.map((item: any) => ({
       boothNumber: item.boothNumber || item.booth_number || "",
       boothName: item.boothName || item.booth_name || "",
@@ -286,6 +356,7 @@ export function createMatchIndex(rawItems: any[]): MatchIndex {
       imageUrl: item.imageUrl || item.image_url || "",
       tags: item.tags || [],
       eventName: item.eventName || item.event_name || "",
+      dayId: item.dayId || item.day_id || undefined,
       sourceUrl: item.sourceUrl || item.source_url || "",
       doujinshiId: item.doujinshiId || item.doujinshi_id || 0,
       hotCount: item.hotCount || item.hot_count || 0,
@@ -296,16 +367,12 @@ export function createMatchIndex(rawItems: any[]): MatchIndex {
   }
 
   const normalized: NormalizedCPPItem[] = [];
-
   for (const item of rawItems) {
-    const participationList = item.participationInfo || [];
-    if (participationList.length === 0) continue;
-
-    for (const info of participationList) {
+    for (const info of item.participationInfo || []) {
       normalized.push({
         boothNumber: info.boothNumber || "",
         boothName: info.boothName || "",
-        productName: item.doujinshiName || "",
+        productName: item.doujinshiName || item.productName || "",
         author: Array.isArray(item.authors) ? item.authors.join(", ") : "",
         imageUrl: item.imageUrl || item.pic || "",
         tags: item.tags || [],
@@ -314,11 +381,10 @@ export function createMatchIndex(rawItems: any[]): MatchIndex {
         doujinshiId: item.doujinshiId || 0,
         hotCount: item.hotCount || 0,
         originalWork: item.themeAlias || "",
-        exchangeType: "",
-        description: "",
+        exchangeType: item.exchangeType || "",
+        description: item.description || "",
       });
     }
   }
-
   return new MatchIndex(normalized);
 }

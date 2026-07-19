@@ -120,7 +120,11 @@ export interface MatchInput {
   boothNumber: string;
   productName: string;
   author?: string;
+  doujinshiId?: number;
 }
+
+export type MatchDecision = "accepted" | "review" | "unmatched";
+export type MatchSource = "database-index" | "database-search" | "external-api";
 
 /**
  * 匹配结果
@@ -129,7 +133,12 @@ export interface MatchResult {
   matched: boolean;
   confidence: MatchConfidence;
   cppItem?: NormalizedCPPItem;
+  candidate?: NormalizedCPPItem;
   reason?: string;
+  score?: number;
+  decision?: MatchDecision;
+  source?: MatchSource;
+  requiresReview?: boolean;
 }
 
 /**

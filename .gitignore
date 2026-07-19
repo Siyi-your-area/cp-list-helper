@@ -39,3 +39,11 @@ tsconfig.tsbuildinfo
 # Puppeteer
 .puppeteer/
 .vercel
+
+# CPP 同步断点与运行报告
+.cpp-sync/
+.matching-reports/
+
+# 本地验收产物
+outputs/
+.next-dev.*.log

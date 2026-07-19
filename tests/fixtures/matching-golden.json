@@ -1,0 +1,157 @@
+[
+  {
+    "case": "exact-basic",
+    "input": { "boothNumber": "陆P03", "productName": "最近可以了", "author": "TaTaG, 7U7U" },
+    "expectedDoujinshiId": 1605307
+  },
+  {
+    "case": "exact-long-name",
+    "input": { "boothNumber": "陆O49", "productName": "罗小黑/蓝溪镇中心·全女折页《任平生》", "author": "阿斯巴苦" },
+    "expectedDoujinshiId": 1571253
+  },
+  {
+    "case": "unique-id",
+    "input": { "boothNumber": "", "productName": "", "doujinshiId": 1503402 },
+    "expectedDoujinshiId": 1503402
+  },
+  {
+    "case": "combined-booth-first",
+    "input": { "boothNumber": "伍C21", "productName": "舟男 花嫁合订本" },
+    "expectedDoujinshiId": 1594257
+  },
+  {
+    "case": "combined-booth-second",
+    "input": { "boothNumber": "伍C22", "productName": "全是小男孩 -多汁浆果" },
+    "expectedDoujinshiId": 1581069
+  },
+  {
+    "case": "bracket-title-alias",
+    "input": { "boothNumber": "陆G01", "productName": "NG", "author": "欧君" },
+    "expectedDoujinshiId": 1503402
+  },
+  {
+    "case": "book-title-alias",
+    "input": { "boothNumber": "陆S14", "productName": "春长" },
+    "expectedDoujinshiId": 1607803
+  },
+  {
+    "case": "fullwidth-normalization",
+    "input": { "boothNumber": "叁Ｋ２０", "productName": "【女神异闻录】雨宫莲ｊｏｋｅｒ小卡套装" },
+    "expectedDoujinshiId": 950266
+  },
+  {
+    "case": "space-normalization",
+    "input": { "boothNumber": "叁 N31", "productName": "StarryCafe林塞合志" },
+    "expectedDoujinshiId": 1616348
+  },
+  {
+    "case": "punctuation-normalization",
+    "input": { "boothNumber": "贰S29", "productName": "雨村·爱情故事" },
+    "expectedDoujinshiId": 1618522
+  },
+  {
+    "case": "exact-moments",
+    "input": { "boothNumber": "陆H41", "productName": "【漫本/新刊】Moments", "author": "苏卡" },
+    "expectedDoujinshiId": 1378501
+  },
+  {
+    "case": "exact-p5",
+    "input": { "boothNumber": "叁K20", "productName": "【女神异闻录5】M5+A5插图本系列", "author": "Akira, 深灵夜语" },
+    "expectedDoujinshiId": 1381405
+  },
+  {
+    "case": "case-normalization",
+    "input": { "boothNumber": "伍K30", "productName": "namie老师c101【solace】", "author": "yugi" },
+    "expectedDoujinshiId": 421624
+  },
+  {
+    "case": "exact-long-prefix",
+    "input": { "boothNumber": "陆G45", "productName": "【cp32首发】【帝限】同云雨" },
+    "expectedDoujinshiId": 1572007
+  },
+  {
+    "case": "combined-booth-year",
+    "input": { "boothNumber": "伍Q16", "productName": "年年岁岁" },
+    "expectedDoujinshiId": 1565876
+  },
+  {
+    "case": "exact-original",
+    "input": { "boothNumber": "伍D26", "productName": "那对男人" },
+    "expectedDoujinshiId": 1045421
+  },
+  {
+    "case": "exact-alliance",
+    "input": { "boothNumber": "贰A13", "productName": "漫本｜联盟大神这么可爱真是不好意思了" },
+    "expectedDoujinshiId": 1579450
+  },
+  {
+    "case": "exact-daisy",
+    "input": { "boothNumber": "陆N27", "productName": "【鹿野中心】雏菊" },
+    "expectedDoujinshiId": 1592321
+  },
+  {
+    "case": "negative-existing-booth-wrong-name",
+    "input": { "boothNumber": "陆O49", "productName": "完全不存在的商品" },
+    "expectedDoujinshiId": null
+  },
+  {
+    "case": "negative-unknown-booth",
+    "input": { "boothNumber": "测Z99", "productName": "不存在" },
+    "expectedDoujinshiId": null
+  },
+  {
+    "case": "negative-empty",
+    "input": { "boothNumber": "", "productName": "" },
+    "expectedDoujinshiId": null
+  },
+  {
+    "case": "negative-similar-author-only",
+    "input": { "boothNumber": "陆P03", "productName": "另一件制品", "author": "TaTaG" },
+    "expectedDoujinshiId": null
+  },
+  {
+    "case": "negative-other-booth-real-name",
+    "input": { "boothNumber": "测A01", "productName": "最近可以了" },
+    "expectedDoujinshiId": null
+  },
+  {
+    "case": "feedback-exact-shared-prefix-libertango",
+    "input": { "boothNumber": "肆P21", "productName": "【图奈】Libertango！（花滑AU）" },
+    "expectedDoujinshiId": 1604107
+  },
+  {
+    "case": "feedback-exact-shared-prefix-wine",
+    "input": { "boothNumber": "肆H16", "productName": "【苏丹的游戏-图奈】终日之酒" },
+    "expectedDoujinshiId": 1602037
+  },
+  {
+    "case": "feedback-exact-shared-prefix-morning",
+    "input": { "boothNumber": "肆P24", "productName": "【图奈】cp32首发｜早安！喵费勒" },
+    "expectedDoujinshiId": 1600386
+  },
+  {
+    "case": "feedback-exact-combined-booth-room",
+    "input": { "boothNumber": "肆P27肆P28", "productName": "【图奈】伯劳的9号房间" },
+    "expectedDoujinshiId": 1590924
+  },
+  {
+    "case": "feedback-fuzzy-one-character",
+    "input": { "boothNumber": "肆Q17", "productName": "【图奈】现在是进展时间！" },
+    "expectedDoujinshiId": 1619571
+  },
+  {
+    "case": "feedback-exact-shared-prefix-fire",
+    "input": { "boothNumber": "肆Q21", "productName": "【图奈】妄火" },
+    "expectedDoujinshiId": 1584025
+  },
+  {
+    "case": "feedback-exact-shared-prefix-dignity",
+    "input": { "boothNumber": "肆Q23", "productName": "【图奈】《体面Dignity》" },
+    "expectedDoujinshiId": 1587668
+  },
+  {
+    "case": "feedback-exact-shared-prefix-egg",
+    "input": { "boothNumber": "肆Q24", "productName": "【图奈】遗落的卵" },
+    "expectedDoujinshiId": 1586005
+  }
+]

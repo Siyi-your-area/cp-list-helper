@@ -136,7 +136,14 @@ npm run preview        # Cloudflare Workers 本地预览
 npm run deploy         # Cloudflare 生产部署
 npm run deploy:preview # Cloudflare 预览部署
 npm run cf-typegen     # 生成 Cloudflare env 类型
+npm run sync:cpp -- --event=cpg --days=<CPP_DAY_IDS>
+npm run evaluate:matching
+npm run benchmark:matching -- --endpoint=http://localhost:3000/api/cpp/match
 ```
+
+CPP 批量同步、断点续传和校验流程见
+[`docs/07-cpp-sync-runbook.md`](docs/07-cpp-sync-runbook.md)；两阶段匹配逻辑、质量指标和性能基线见
+[`docs/08-matching-current-state.md`](docs/08-matching-current-state.md)。
 
 ## License
 

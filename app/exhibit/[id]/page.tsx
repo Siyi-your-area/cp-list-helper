@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -22,12 +23,14 @@ import {
   Camera,
   Copy,
   CheckCircle,
+  Info,
 } from "@phosphor-icons/react";
 import type { WishItem, MatchResult, MatchInput } from "@/lib/types";
 import { STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
 import { parseExcelFile } from "@/lib/excel-parser";
 import { useExhibitData } from "@/hooks/useExhibitData";
 import { MobileTableView } from "@/components/MobileTableView";
+import { CppUploadGuide } from "@/components/CppUploadGuide";
 import { getClientId } from "@/lib/client-id";
 import {
   buildReviewNote,
@@ -205,14 +208,18 @@ export default function ExhibitDetail() {
 
   // ---- 操作函数 ----
 
-  const handleDeleteItem = async (id: string) => {
-    if (!confirm("确定删除这一行吗？")) return;
+  const handleRemoveItem = async (id: string) => {
     await removeItem(id);
     setSelectedItemIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
+  };
+
+  const handleDeleteItem = async (id: string) => {
+    if (!confirm("确定删除这一行吗？")) return;
+    await handleRemoveItem(id);
   };
 
   const handleBatchDelete = async () => {
@@ -667,7 +674,7 @@ export default function ExhibitDetail() {
           status: STATUS_TEXT[item.status],
           price: item.price,
           quantity: item.quantity,
-          total: item.price && item.quantity ? item.price * item.quantity : null,
+          total: item.price != null && item.quantity != null ? item.price * item.quantity : null,
           note: getVisibleWishNote(item.note),
           description: item.description,
         });
@@ -845,7 +852,7 @@ export default function ExhibitDetail() {
                 >
                   <span className="text-sm font-mono font-bold text-amber-700 tracking-wider">{shareCode}</span>
                   {copied ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-green-600" weight="bold" />
+                    <CheckCircle className="w-3.5 h-3.5 text-green-600" />
                   ) : (
                     <Copy className="w-3.5 h-3.5 text-amber-500 group-hover:text-amber-700" />
                   )}
@@ -853,6 +860,14 @@ export default function ExhibitDetail() {
               )}
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2">
+              <Link
+                href="/about"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 transition-colors hover:bg-slate-200 sm:h-9 sm:w-9"
+                aria-label="开发者与数据版权声明"
+                title="开发者与数据版权声明"
+              >
+                <Info className="h-4 w-4" />
+              </Link>
               <button
                 onClick={() => void handleToggleEditMode()}
                 disabled={savingEdits}
@@ -860,7 +875,7 @@ export default function ExhibitDetail() {
                   editMode ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
-                {editMode ? <Check className="w-4 h-4" weight="bold" /> : <Pencil className="w-4 h-4" />}
+                {editMode ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
                 <span className="hidden sm:inline">{savingEdits ? "保存中..." : editMode ? "保存并退出" : "编辑模式"}</span>
               </button>
               <button
@@ -873,7 +888,7 @@ export default function ExhibitDetail() {
               <button
                 onClick={handleExport}
                 disabled={exporting}
-                className="bg-emerald-600 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-emerald-700 transition-colors text-xs sm:text-sm flex items-center gap-1"
+                className="bg-rose-100 text-slate-900 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-rose-200 transition-colors text-xs sm:text-sm flex items-center gap-1"
               >
                 <FileArrowDown className="w-4 h-4" />
                 <span className="hidden sm:inline">{exporting ? "导出中..." : "导出"}</span>
@@ -911,7 +926,7 @@ export default function ExhibitDetail() {
           items={items}
           onUpdateItem={handleUpdateItem}
           onSaveItem={handleSaveMobileItem}
-          onRemoveItem={handleDeleteItem}
+          onRemoveItem={handleRemoveItem}
         />
       </div>
 
@@ -1107,10 +1122,25 @@ export default function ExhibitDetail() {
                     </Td>
                     {/* 热度 */}
                     <Td>
-                      <div className="flex items-center gap-1">
-                        <Flame className="w-3.5 h-3.5 text-orange-500" />
-                        <span className="text-sm font-medium text-slate-700">{item.hotCount || 0}</span>
-                      </div>
+                      {editMode ? (
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.hotCount ?? ""}
+                          onChange={(e) => handleDraftItem(
+                            item.id,
+                            "hotCount",
+                            e.target.value === "" ? undefined : Math.max(0, Number(e.target.value))
+                          )}
+                          className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm"
+                          aria-label={`${item.productName}的热度`}
+                        />
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <Flame className="w-3.5 h-3.5 text-orange-500" />
+                          <span className="text-sm font-medium text-slate-700">{item.hotCount ?? 0}</span>
+                        </div>
+                      )}
                     </Td>
                     {/* 开摊信息 */}
                     <Td>
@@ -1159,23 +1189,38 @@ export default function ExhibitDetail() {
                     {/* 单价 */}
                     <Td>
                       {item.type === "free" ? "-" : editMode ? (
-                        <input type="number" value={item.price || ""} onChange={(e) => handleDraftItem(item.id, "price", parseFloat(e.target.value) || undefined)} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" placeholder="¥" />
+                        <input type="number" min={0} value={item.price ?? ""} onChange={(e) => handleDraftItem(item.id, "price", e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)))} className="w-16 px-2 py-1 border border-slate-300 rounded-lg text-sm" placeholder="¥" />
                       ) : (
-                        <span>{item.price ? `¥${item.price}` : "-"}</span>
+                        <span>{item.price != null ? `¥${item.price}` : "-"}</span>
                       )}
                     </Td>
                     {/* 数量 */}
                     <Td>
                       {editMode ? (
-                        <input type="number" value={item.quantity || ""} onChange={(e) => handleDraftItem(item.id, "quantity", parseInt(e.target.value) || undefined)} className="w-12 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.quantity ?? ""}
+                          onChange={(e) => handleDraftItem(
+                            item.id,
+                            "quantity",
+                            e.target.value === "" ? undefined : Math.max(0, Number.parseInt(e.target.value, 10))
+                          )}
+                          onBlur={(e) => {
+                            if (e.currentTarget.value === "") {
+                              handleDraftItem(item.id, "quantity", 0);
+                            }
+                          }}
+                          className="w-12 px-2 py-1 border border-slate-300 rounded-lg text-sm"
+                        />
                       ) : (
-                        <span>{item.quantity || "-"}</span>
+                        <span>{item.quantity ?? "-"}</span>
                       )}
                     </Td>
                     {/* 实付 (自动 = 单价 × 数量) */}
                     <Td>
                       {item.type === "free" ? "-" : (
-                        <span>{item.price && item.quantity ? `¥${(item.price * item.quantity).toFixed(2)}` : "-"}</span>
+                        <span>{item.price != null && item.quantity != null ? `¥${(item.price * item.quantity).toFixed(2)}` : "-"}</span>
                       )}
                     </Td>
                     {/* 备注 */}
@@ -1251,7 +1296,7 @@ export default function ExhibitDetail() {
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-emerald-600" weight="fill" />
+                <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-display">导入成功</h2>
@@ -1445,9 +1490,12 @@ export default function ExhibitDetail() {
             ) : (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    上传心愿单 Excel
-                  </label>
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      上传心愿单 Excel
+                    </label>
+                    <CppUploadGuide />
+                  </div>
                   <p className="text-xs text-slate-500 mb-2">
                     支持列名：社团摊位号、展品名称、作者（可选）
                   </p>

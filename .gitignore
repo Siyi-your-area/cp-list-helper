@@ -10,6 +10,7 @@ cloudflare-env.d.ts
 # 爬虫数据（原始文件，不需要部署）
 data/cpp-data/
 cpp-cookies.json
+cpp-search-request.txt
 
 # 按摊位拆分的文件（可通过 npm run prepare:cpp 重新生成）
 public/cpp/cp32/booths/

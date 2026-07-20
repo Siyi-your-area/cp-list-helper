@@ -3,25 +3,81 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #1e293b;
+  --background: #f8f8f6;
+  --foreground: #454a44;
+  --surface: #ffffff;
+  --sand: #af9f8c;
+  --grass: #7f867b;
+  --grass-strong: #5f685d;
+  --matcha: #c7c7bb;
+  --dusty-rose: #d4c8be;
+  --linen: #e3e4e0;
+  --border: #dcddd8;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f172a;
-    --foreground: #e2e8f0;
-  }
+html {
+  color-scheme: light;
+  background: var(--background);
 }
 
 body {
+  min-height: 100vh;
   color: var(--foreground);
   background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-noto-sans-sc), "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 .font-display {
-  font-family: var(--font-outfit), -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-noto-sans-sc), "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  color: #333833;
+  background: #d4c8be;
+}
+
+@layer components {
+  .ui-btn {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  .ui-btn-primary {
+    @apply ui-btn bg-indigo-600 text-white hover:bg-indigo-700;
+  }
+
+  .ui-btn-secondary {
+    @apply ui-btn bg-rose-100 text-slate-900 hover:bg-rose-200;
+  }
+
+  .ui-btn-outline {
+    @apply ui-btn border border-slate-300 bg-white text-slate-800 hover:bg-slate-100;
+  }
+
+  .ui-btn-ghost {
+    @apply ui-btn bg-transparent text-slate-700 hover:bg-slate-100;
+  }
+
+  .ui-btn-danger {
+    @apply ui-btn bg-rose-100 text-rose-700 hover:bg-rose-200;
+  }
+
+  .ui-field {
+    @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition-shadow placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20;
+  }
+
+  .ui-surface {
+    @apply rounded-2xl border border-slate-200 bg-white;
+  }
 }
 
 /* 底部抽屉滑入动画 */

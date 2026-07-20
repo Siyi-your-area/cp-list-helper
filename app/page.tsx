@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import NextLink from "next/link";
 import {
-  Target,
   Calendar,
   ListHeart,
   Plus,
@@ -12,7 +12,8 @@ import {
   Trash,
   CaretDown,
   Spinner,
-  Link,
+  Link as LinkIcon,
+  Info,
   Warning,
   UploadSimple,
 } from "@phosphor-icons/react";
@@ -25,6 +26,8 @@ import {
 import { getClientId } from "@/lib/client-id";
 import { parseExcelFile } from "@/lib/excel-parser";
 import { buildReviewNote } from "@/lib/match-review";
+import { BearLogo } from "@/components/BearLogo";
+import { CppUploadGuide } from "@/components/CppUploadGuide";
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message;
@@ -69,6 +72,7 @@ export default function Home() {
   const [exhibits, setExhibits] = useState<Exhibit[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportMode, setIsImportMode] = useState(false);
   const [selectedExhibit, setSelectedExhibit] = useState("");
   const [listName, setListName] = useState("");
   const [createUploadFile, setCreateUploadFile] = useState<File | null>(null);
@@ -102,6 +106,19 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  const openCreateModal = (importMode = false) => {
+    setIsImportMode(importMode);
+    setIsModalOpen(true);
+  };
+
+  const closeCreateModal = () => {
+    setIsModalOpen(false);
+    setIsImportMode(false);
+    setSelectedExhibit("");
+    setListName("");
+    setCreateUploadFile(null);
+  };
 
   const handleCreate = async () => {
     if (!selectedExhibit) {
@@ -200,10 +217,7 @@ export default function Home() {
         }
       }
 
-      setIsModalOpen(false);
-      setSelectedExhibit("");
-      setListName("");
-      setCreateUploadFile(null);
+      closeCreateModal();
       await loadExhibits();
       if (importError) {
         alert(`心愿单已创建，但上传内容导入失败：${importError.message}`);
@@ -269,11 +283,9 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
-                <Target className="w-5 h-5 text-white" weight="bold" />
-              </div>
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 pr-12 sm:pr-0">
+              <BearLogo />
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 font-display">
                   CP展会List帮手
@@ -281,13 +293,26 @@ export default function Home() {
                 <p className="text-sm text-slate-500">同人展会心愿单管理工具</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="w-full sm:w-auto bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center justify-center gap-2 active:scale-[0.98]"
+            <NextLink
+              href="/about"
+              aria-label="关于与数据版权声明"
+              className="absolute right-0 top-0 grid h-10 w-10 place-items-center rounded-xl bg-[#E3E4E0] text-[#4F5750] transition-colors hover:bg-[#D4C8BE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7F867B] focus-visible:ring-offset-2 sm:hidden"
             >
-              <Plus className="w-4 h-4" weight="bold" />
-              <span>创建心愿单</span>
-            </button>
+              <Info className="h-5 w-5" />
+            </NextLink>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <NextLink href="/about" className="ui-btn-secondary hidden sm:inline-flex">
+                <Info className="h-4 w-4" />
+                <span>关于</span>
+              </NextLink>
+              <button
+                onClick={() => openCreateModal(false)}
+                className="ui-btn-primary w-full active:scale-[0.98] sm:w-auto"
+              >
+                <Plus className="h-4 w-4" />
+                <span>创建心愿单</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -299,43 +324,37 @@ export default function Home() {
             <Spinner className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-4" />
             <p className="text-slate-500">加载中...</p>
           </div>
-        ) : exhibits.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-              <ListHeart className="w-8 h-8 text-slate-400" />
-            </div>
-            <h2 className="text-xl font-semibold text-slate-700 mb-2 font-display">还没有心愿单</h2>
-            <p className="text-slate-500 text-sm mb-8">点击上方按钮创建第一个心愿单</p>
-
-            {/* 清单识别码加入（即使没有展会也显示） */}
-            <InviteCodeCard
-              code={inviteCode}
-              setCode={setInviteCode}
-              joinError={joinError}
-              joinLoading={joinLoading}
-              onJoin={handleJoinByCode}
-            />
-          </div>
         ) : (
           <>
-            {/* 清单识别码加入卡片 */}
-            <InviteCodeCard
-              code={inviteCode}
-              setCode={setInviteCode}
-              joinError={joinError}
-              joinLoading={joinLoading}
-              onJoin={handleJoinByCode}
-            />
-
-            {/* 分隔线 */}
-            <div className="flex items-center gap-4 my-8">
-              <div className="flex-1 h-px bg-slate-200" />
-              <span className="text-sm text-slate-400">我的心愿单</span>
-              <div className="flex-1 h-px bg-slate-200" />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <InviteCodeCard
+                code={inviteCode}
+                setCode={setInviteCode}
+                joinError={joinError}
+                joinLoading={joinLoading}
+                onJoin={handleJoinByCode}
+              />
+              <CppImportCard onImport={() => openCreateModal(true)} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {exhibits.map((exhibit) => (
+            {exhibits.length === 0 ? (
+              <div className="py-16 text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+                  <ListHeart className="h-8 w-8 text-slate-400" />
+                </div>
+                <h2 className="mb-2 text-xl font-semibold text-slate-700 font-display">还没有心愿单</h2>
+                <p className="text-sm text-slate-500">创建、导入或使用识别码加入第一份心愿单</p>
+              </div>
+            ) : (
+              <>
+                <div className="my-8 flex items-center gap-4">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <span className="text-sm text-slate-400">我的心愿单</span>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+                  {exhibits.map((exhibit) => (
               <div
                 key={exhibit.id}
                 onClick={() => router.push(`/exhibit/${exhibit.id}`)}
@@ -374,25 +393,46 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </main>
+
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-slate-500 sm:flex-row sm:px-6 lg:px-8">
+          <span>开发者：IcebearHuang</span>
+          <div className="flex items-center gap-3">
+            <a
+              href="https://xhslink.com/m/j0ghQF9UjL"
+              target="_blank"
+              rel="noreferrer"
+              className="text-slate-700 underline decoration-amber-400 decoration-2 underline-offset-4"
+            >
+              小红书主页
+            </a>
+            <NextLink
+              href="/about"
+              className="text-slate-700 underline decoration-amber-400 decoration-2 underline-offset-4"
+            >
+              数据与版权声明
+            </NextLink>
+          </div>
+        </div>
+      </footer>
 
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-900 font-display">创建展会心愿单</h2>
+              <h2 className="text-xl font-bold text-slate-900 font-display">
+                {isImportMode ? "从 CPP 导入心愿单" : "创建展会心愿单"}
+              </h2>
               <button
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setSelectedExhibit("");
-                  setListName("");
-                  setCreateUploadFile(null);
-                }}
+                onClick={closeCreateModal}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -439,9 +479,15 @@ export default function Home() {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  上传心愿单 <span className="font-normal text-slate-400">（可选）</span>
-                </label>
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    上传心愿单{" "}
+                    <span className="font-normal text-slate-400">
+                      {isImportMode ? "（必填）" : "（可选）"}
+                    </span>
+                  </label>
+                  <CppUploadGuide />
+                </div>
                 <label className="w-full px-3.5 py-3 border border-dashed border-slate-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50/40 transition-colors cursor-pointer flex items-center gap-2 text-sm text-slate-600">
                   <UploadSimple className="w-5 h-5 text-indigo-500 shrink-0" />
                   <span className="truncate">{createUploadFile?.name || "选择 Excel 或 CSV 文件"}</span>
@@ -459,20 +505,20 @@ export default function Home() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleCreate}
-                disabled={creating || !selectedExhibit || !listName.trim()}
-                className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                disabled={
+                  creating ||
+                  !selectedExhibit ||
+                  !listName.trim() ||
+                  (isImportMode && !createUploadFile)
+                }
+                className="ui-btn-primary flex-1 active:scale-[0.98]"
               >
                 {creating && <Spinner className="w-4 h-4 animate-spin" />}
-                {creating ? "创建中..." : "创建"}
+                {creating ? "处理中..." : isImportMode ? "导入并创建" : "创建"}
               </button>
               <button
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setSelectedExhibit("");
-                  setListName("");
-                  setCreateUploadFile(null);
-                }}
-                className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+                onClick={closeCreateModal}
+                className="ui-btn-secondary flex-1"
               >
                 取消
               </button>
@@ -487,7 +533,7 @@ export default function Home() {
           <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl">
             <div className="flex items-start gap-3 mb-5">
               <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
-                <Trash className="w-5 h-5 text-rose-600" weight="bold" />
+                <Trash className="w-5 h-5 text-rose-600" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-display">
@@ -506,7 +552,7 @@ export default function Home() {
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="flex-1 bg-rose-600 text-white py-2.5 rounded-lg hover:bg-rose-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                className="ui-btn-danger flex-1"
               >
                 {deleting && <Spinner className="w-4 h-4 animate-spin" />}
                 {deleting ? "删除中..." : "删除"}
@@ -514,7 +560,7 @@ export default function Home() {
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg hover:bg-slate-200 transition-colors font-medium disabled:opacity-50"
+                className="ui-btn-secondary flex-1"
               >
                 取消
               </button>
@@ -543,32 +589,60 @@ function InviteCodeCard({
   joinLoading: boolean;
   onJoin: () => void;
 }) {
+  const normalizeCode = (value: string) =>
+    value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 4);
+
+  const handleCodeChange = (value: string) => {
+    const normalized = normalizeCode(value);
+    setCode(normalized);
+    if (normalized.length === 4) {
+      setTimeout(onJoin, 100);
+    }
+  };
+
   return (
-    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-xl p-5 mb-6">
+    <section className="h-full rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex items-center gap-2 mb-3">
-        <Link className="w-5 h-5 text-indigo-600" weight="bold" />
-        <h3 className="text-sm font-semibold text-indigo-900">使用清单识别码打开心愿单</h3>
+        <LinkIcon className="h-5 w-5 text-indigo-600" />
+        <h3 className="text-sm font-semibold text-slate-900">使用清单识别码打开心愿单</h3>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
-        <input
-          type="text"
-          value={code}
-          onChange={(e) => {
-            setCode(e.target.value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 4));
-            // 输入4位自动提交
-            if (e.target.value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").length >= 4) {
-              setTimeout(onJoin, 100);
-            }
-          }}
-          onKeyDown={(e) => e.key === "Enter" && onJoin()}
-          placeholder="4位清单识别码"
-          maxLength={4}
-          className="w-full min-w-0 px-4 py-2.5 border border-indigo-200 rounded-lg bg-white text-center text-lg font-mono font-bold tracking-widest text-indigo-900 placeholder-slate-300 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-        />
+      <div className="grid grid-cols-[minmax(0,20rem)_auto] items-center justify-start gap-2">
+        <div className="relative">
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => handleCodeChange(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onJoin()}
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoCapitalize="characters"
+            spellCheck={false}
+            maxLength={4}
+            aria-label="4位清单识别码"
+            className="peer absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
+          />
+          <div className="grid grid-cols-4 gap-2 sm:gap-3" aria-hidden="true">
+            {[0, 1, 2, 3].map((index) => {
+              const active = code.length === index || (code.length === 4 && index === 3);
+              return (
+                <div
+                  key={index}
+                  className={`grid aspect-square min-w-0 place-items-center rounded-xl border text-xl font-bold text-slate-900 transition-colors ${
+                    active
+                      ? "border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20"
+                      : "border-slate-200 bg-slate-100"
+                  }`}
+                >
+                  {code[index] || ""}
+                </div>
+              );
+            })}
+          </div>
+        </div>
         <button
           onClick={onJoin}
           disabled={joinLoading || code.length !== 4}
-          className="w-full sm:w-auto px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
+          className="ui-btn-primary whitespace-nowrap"
         >
           {joinLoading ? <Spinner className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
           加入
@@ -580,6 +654,31 @@ function InviteCodeCard({
           <span>{joinError}</span>
         </div>
       )}
-    </div>
+    </section>
+  );
+}
+
+function CppImportCard({ onImport }: { onImport: () => void }) {
+  return (
+    <section className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <UploadSimple className="h-5 w-5 text-indigo-600" />
+        <h3 className="text-sm font-semibold text-slate-900">从 CPP 导入</h3>
+      </div>
+      <p className="mb-4 text-xs leading-5 text-slate-500">
+        支持 CP32 一期 / 二期、CPG08 心愿单 Excel，导入时请选择对应展会。
+      </p>
+      <button
+        type="button"
+        onClick={onImport}
+        className="ui-btn-outline mt-auto w-full"
+      >
+        <UploadSimple className="h-5 w-5" />
+        上传 CPP 心愿单 Excel
+      </button>
+      <div className="mt-1 flex justify-center">
+        <CppUploadGuide />
+      </div>
+    </section>
   );
 }

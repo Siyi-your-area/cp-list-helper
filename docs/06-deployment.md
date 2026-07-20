@@ -1,7 +1,7 @@
 # CP List Helper - Cloudflare OpenNext 部署指南
 
 **文档版本**：v2  
-**更新日期**：2026-07-15  
+**更新日期**：2026-07-19
 **文档维护人**：Siyi
 
 ---
@@ -58,7 +58,7 @@ Cloudflare preview 可复制 `.dev.vars.example` 为 `.dev.vars`：
 NEXTJS_ENV=development
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-CPP_COOKIE_JSON=...
+CPP_COOKIE=...
 ```
 
 `.dev.vars` 不提交 Git。
@@ -70,10 +70,20 @@ CPP_COOKIE_JSON=...
 ```text
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
-CPP_COOKIE_JSON
+CPP_COOKIE
 ```
 
-`CPP_COOKIE_JSON` 必须作为服务端 Secret 保存，不能写入前端代码或 Git。
+`CPP_COOKIE` 是完整的 Cookie 请求头值，必须作为服务端 Secret 保存，不能写入前端代码、`wrangler.jsonc`、Git 或构建日志。交互式写入命令：
+
+```bash
+# 生产环境
+npx wrangler secret put CPP_COOKIE
+
+# 预览环境
+npx wrangler secret put CPP_COOKIE --env preview
+```
+
+命令会在终端中安全提示输入值，不要把 Cookie 拼在命令参数中。
 
 ---
 
@@ -119,6 +129,6 @@ npm run preview
 
 ## 六、后续待办
 
-- CPP 实时搜索兜底：新增服务端 API，从 Cloudflare Secret 读取 `CPP_COOKIE_JSON`
+- CPP Cookie 到期提醒与外部接口成功率监控
 - 用户上传图片 URL 化：前端压缩后上传到对象存储，数据库只保存 URL
 - 正式推广前补充 CPG08 原始数据并上传 Supabase

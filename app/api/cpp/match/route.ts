@@ -1,13 +1,17 @@
-import fs from "node:fs";
-import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import {
-  createMatchAliases,
   createMatchIndex,
   MatchIndex,
-  normalizeMatchText,
-  splitBoothNumber,
 } from "@/lib/cpp-matcher";
+import {
+  enrichCPPItemWithDetail,
+  extractCoreProductName,
+  fetchCPPExternalDetail,
+  getCPPCookieHeader,
+  isCPPExternalFallbackEligible,
+  matchCPPExternalCandidates,
+  searchCPPExternal,
+} from "@/lib/cpp-external";
 import {
   getCPPItems,
   getCPPItemsByBooths,
@@ -17,7 +21,6 @@ import {
 import type {
   MatchInput,
   MatchResult,
-  NormalizedCPPItem,
 } from "@/lib/types";
 
 const MAX_ITEMS = 1000;
@@ -26,14 +29,6 @@ const EXTERNAL_CONCURRENCY = 6;
 const MAX_EXTERNAL_TASKS = 40;
 const SERVER_BUDGET_MS = 28_000;
 const EXTERNAL_TIMEOUT_MS = 5_000;
-const KEYWORD_CACHE_TTL = 30 * 60 * 1000;
-
-interface CachedFetch {
-  items: NormalizedCPPItem[];
-  time: number;
-}
-
-const keywordCache = new Map<string, CachedFetch>();
 
 function elapsed(start: number) {
   return Math.round((performance.now() - start) * 10) / 10;
@@ -57,130 +52,10 @@ async function mapWithConcurrency<T>(
   await Promise.all(workers);
 }
 
-function getCookies(): string {
-  if (process.env.CPP_COOKIE) return process.env.CPP_COOKIE;
-  try {
-    const cookiePath = path.join(process.cwd(), "cpp-cookies.json");
-    const cookies = JSON.parse(fs.readFileSync(cookiePath, "utf-8"));
-    return cookies.map((cookie: any) => `${cookie.name}=${cookie.value}`).join("; ");
-  } catch {
-    return "";
-  }
-}
-
 function extractSearchKeyword(productName: string): string {
-  if (!productName) return "";
-  const cleaned = productName
-    // 【图奈】、【新刊】通常是作品/宣发标签，不应作为搜索主体。
-    .replace(/^(?:\s*[【\[][^\]】]+[\]】]\s*)+/, "")
-    .replace(/^(?:cp|comicup)\s*\d+(?:pre)?/i, "")
-    .replace(/(?:cp|comicup)\s*\d+(?:pre)?/gi, "")
-    .replace(/新刊|首发|场贩|通贩|二刷/g, "")
-    .replace(/^[\s·|｜:：\-—]+|[\s·|｜:：\-—]+$/g, "")
-    .trim();
+  const cleaned = extractCoreProductName(productName);
   if (cleaned.length >= 2) return cleaned.slice(0, 24);
-
-  // 极端情况下退回标准化别名，避免标签剥离后没有可搜索内容。
-  const alias = createMatchAliases(productName)
-    .filter((value) => value.length >= 2)
-    .sort((left, right) => right.length - left.length)[0];
-  return (alias || cleaned).slice(0, 24);
-}
-
-function boothNumbersOverlap(left: string, right: string): boolean {
-  if (!left.trim()) return true;
-  const buildTokens = (value: string) =>
-    new Set(
-      [value, ...splitBoothNumber(value)]
-        .map(normalizeMatchText)
-        .filter(Boolean)
-    );
-  const leftTokens = buildTokens(left);
-  const rightTokens = buildTokens(right);
-  return Array.from(leftTokens).some((value) => rightTokens.has(value));
-}
-
-async function fetchByKeyword(
-  keyword: string,
-  boothNumber: string,
-  dayIds: string[],
-  deadline: number
-): Promise<NormalizedCPPItem[]> {
-  if (!keyword.trim() || performance.now() >= deadline) return [];
-  const cacheKey = `${dayIds.join(",")}|${boothNumber}|${keyword}`;
-  const cached = keywordCache.get(cacheKey);
-  if (cached && Date.now() - cached.time < KEYWORD_CACHE_TTL) return cached.items;
-
-  const cookie = getCookies();
-  if (!cookie) return [];
-
-  const pages = await Promise.all(dayIds.map(async (dayId) => {
-    if (performance.now() >= deadline) return [] as NormalizedCPPItem[];
-    const params = new URLSearchParams({
-      eventId: dayId,
-      keyword: keyword.trim(),
-      orderBy: "1",
-      typeIds: "",
-      pageIndex: "1",
-      pageSize: "30",
-      sellStatus: "",
-      ideaType: "",
-      tag: "",
-      ideaStatus: "",
-    });
-
-    try {
-      const response = await fetch(
-        `https://www.allcpp.cn/api/doujinshi/search.do?${params}`,
-        {
-          signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_MS),
-          headers: {
-            "User-Agent": "Mozilla/5.0",
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            Cookie: cookie,
-          },
-        }
-      );
-      if (!response.ok) return [];
-      const json = await response.json();
-      if (!json.isSuccess) return [];
-
-      const output: NormalizedCPPItem[] = [];
-      for (const item of json.result?.list || []) {
-        for (const event of (item.eventList || []).filter(
-          (entry: any) => String(entry.eventID) === String(dayId)
-        )) {
-          if (!boothNumbersOverlap(boothNumber, event.position || "")) continue;
-          output.push({
-            boothNumber: event.position || "",
-            boothName: event.circleName || "",
-            productName: item.doujinshiName || "",
-            author: (item.authorList || [])
-              .map((author: any) => author.authorName || String(author.authorId))
-              .join(", "),
-            imageUrl: item.coverPicUrl
-              ? `https://imagecdn3.allcpp.cn/upload${item.coverPicUrl}`
-              : "",
-            tags: item.tag ? item.tag.split("|") : [],
-            eventName: event.eventName || "",
-            dayId,
-            sourceUrl: `https://www.allcpp.cn/d/${item.doujinshiId}.do`,
-            doujinshiId: item.doujinshiId || 0,
-            hotCount: item.hotCount || 0,
-            originalWork: item.themeAlias || "",
-          });
-        }
-      }
-      return output;
-    } catch {
-      return [];
-    }
-  }));
-
-  const items = pages.flat();
-  keywordCache.set(cacheKey, { items, time: Date.now() });
-  return items;
+  return cleaned.slice(0, 24);
 }
 
 function shouldRetry(result: MatchResult) {
@@ -284,46 +159,67 @@ export async function POST(request: NextRequest) {
     // 第二阶段：数据库未接受的条目才调用 CPP，且受全局 28 秒预算保护。
     const externalStart = performance.now();
     const deadline = requestStart + SERVER_BUDGET_MS;
-    const externalTasks = new Map<
-      string,
-      { keyword: string; boothNumber: string; indices: number[] }
-    >();
+    const externalTasks = new Map<string, { keyword: string; indices: number[] }>();
     results.forEach((result, indexValue) => {
       if (!shouldRetry(result)) return;
       const input = items[indexValue];
+      if (!isCPPExternalFallbackEligible(input)) return;
       const keyword = extractSearchKeyword(input.productName);
       if (!keyword) return;
-      const key = `${input.boothNumber}|${keyword}`;
-      const task = externalTasks.get(key) || {
-        keyword,
-        boothNumber: input.boothNumber,
-        indices: [],
-      };
+      const key = keyword.toLowerCase();
+      const task = externalTasks.get(key) || { keyword, indices: [] };
       task.indices.push(indexValue);
       externalTasks.set(key, task);
     });
 
-    const externalEnabled = Boolean(getCookies() && externalDayIds.length > 0);
+    const cppCookie =
+      externalTasks.size > 0 && externalDayIds.length > 0
+        ? getCPPCookieHeader()
+        : "";
+    const externalEnabled = Boolean(cppCookie && externalDayIds.length > 0);
     const selectedExternalTasks = externalEnabled
       ? Array.from(externalTasks.values()).slice(0, MAX_EXTERNAL_TASKS)
       : [];
     let externalResponses = 0;
+    let externalDetails = 0;
     await mapWithConcurrency(
       selectedExternalTasks,
       EXTERNAL_CONCURRENCY,
       async (task) => {
         if (performance.now() >= deadline) return;
-        const freshItems = await fetchByKeyword(
+        const freshItems = await searchCPPExternal(
           task.keyword,
-          task.boothNumber,
           externalDayIds,
-          deadline
+          cppCookie,
+          deadline,
+          EXTERNAL_TIMEOUT_MS
         );
         if (freshItems.length === 0) return;
         externalResponses += 1;
-        const freshIndex = createMatchIndex(freshItems);
         for (const indexValue of task.indices) {
-          const incoming = freshIndex.match(items[indexValue], "external-api");
+          let incoming = matchCPPExternalCandidates(
+            items[indexValue],
+            freshItems,
+            externalDayIds
+          );
+          if (
+            incoming.decision === "accepted" &&
+            incoming.cppItem &&
+            performance.now() < deadline
+          ) {
+            const detail = await fetchCPPExternalDetail(
+              incoming.cppItem.doujinshiId,
+              cppCookie,
+              deadline
+            );
+            if (detail) {
+              externalDetails += 1;
+              incoming = {
+                ...incoming,
+                cppItem: enrichCPPItemWithDetail(incoming.cppItem, detail),
+              };
+            }
+          }
           results[indexValue] = mergeCandidate(results[indexValue], incoming);
         }
       }
@@ -355,6 +251,7 @@ export async function POST(request: NextRequest) {
       externalEnabled,
       externalAttempted: selectedExternalTasks.length,
       externalResponses,
+      externalDetails,
       fromAPI: fromExternal,
       fallbackRate: items.length > 0
         ? Math.round((selectedExternalTasks.length / items.length) * 10_000) / 100

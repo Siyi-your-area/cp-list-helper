@@ -23,7 +23,7 @@ interface MobileTableViewProps {
   items: WishItem[];
   onUpdateItem: (id: string, field: keyof WishItem, value: any) => void;
   onSaveItem: (item: WishItem) => Promise<void>;
-  onRemoveItem: (id: string) => void;
+  onRemoveItem: (id: string) => void | Promise<void>;
 }
 
 type FilterMode = "all" | "unpurchased";
@@ -64,12 +64,12 @@ function getStatusColor(status: string): string {
   switch (status) {
     case "pending":
     case "待领取":
-      return "bg-blue-100 text-blue-800";
+      return "bg-amber-100 text-amber-900 ring-1 ring-inset ring-amber-300";
     case "purchased":
     case "已领取":
-      return "bg-green-100 text-green-800";
+      return "bg-emerald-100 text-emerald-900 ring-1 ring-inset ring-emerald-300";
     case "soldout":
-      return "bg-red-100 text-red-800";
+      return "bg-rose-100 text-rose-900 ring-1 ring-inset ring-rose-300";
     default:
       return "bg-slate-100 text-slate-600";
   }
@@ -87,7 +87,11 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
   const [drawerItem, setDrawerItem] = useState<WishItem | null>(null);
   const [drawerEditing, setDrawerEditing] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [quantityInput, setQuantityInput] = useState("1");
+  const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const swipeStartRef = useRef<{ id: string; x: number; y: number } | null>(null);
 
   // ---- 过滤 + 排序 ----
 
@@ -171,6 +175,16 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
     setDrawerItem((prev) => (prev && prev.id === drawerItem.id ? { ...prev, [field]: value } : prev));
   };
 
+  const handleDrawerTypeChange = (type: "paid" | "free") => {
+    if (!drawerItem || drawerItem.type === type) return;
+    setDrawerItem((prev) => {
+      if (!prev) return prev;
+      return type === "free"
+        ? { ...prev, type, status: "待领取", price: undefined }
+        : { ...prev, type, status: "pending" };
+    });
+  };
+
   const handleDrawerSave = async () => {
     if (!drawerItem) return;
     try {
@@ -201,11 +215,50 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
     reader.readAsDataURL(file);
   };
 
-  const handleDrawerDelete = () => {
+  const handleDrawerDelete = async () => {
     if (!drawerItem) return;
     if (confirm("确定删除这一行吗？")) {
-      onRemoveItem(drawerItem.id);
-      setDrawerItem(null);
+      try {
+        setDeletingItemId(drawerItem.id);
+        await onRemoveItem(drawerItem.id);
+        setDrawerItem(null);
+      } catch (error) {
+        alert("删除失败: " + (error as Error).message);
+      } finally {
+        setDeletingItemId(null);
+      }
+    }
+  };
+
+  const handleSwipeStart = (event: React.PointerEvent, itemId: string) => {
+    swipeStartRef.current = { id: itemId, x: event.clientX, y: event.clientY };
+  };
+
+  const handleSwipeEnd = (event: React.PointerEvent, itemId: string) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || start.id !== itemId) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (Math.abs(deltaX) <= Math.abs(deltaY) || Math.abs(deltaX) < 36) return;
+    if (deltaX < 0) setSwipedItemId(itemId);
+    else if (swipedItemId === itemId) setSwipedItemId(null);
+  };
+
+  const handleSwipeDelete = async (itemId: string) => {
+    if (!confirm("确定删除这一行吗？")) {
+      setSwipedItemId(null);
+      return;
+    }
+    try {
+      setDeletingItemId(itemId);
+      await onRemoveItem(itemId);
+      setSwipedItemId(null);
+    } catch (error) {
+      alert("删除失败: " + (error as Error).message);
+    } finally {
+      setDeletingItemId(null);
     }
   };
 
@@ -276,7 +329,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
             }`}
           >
             热度
-            <Flame className={`w-3 h-3 ${sortMode === "hot" ? "text-white" : "text-slate-400"}`} weight={sortMode === "hot" ? "fill" : "regular"} />
+            <Flame className={`w-3 h-3 ${sortMode === "hot" ? "text-white" : "text-slate-400"}`} />
           </button>
         </div>
       </div>
@@ -317,14 +370,43 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
             {processedItems.map((item) => (
               <div
                 key={item.id}
-                onClick={() => {
-                  setDrawerItem(item);
-                  setDrawerEditing(true);
-                  setDetailsExpanded(false);
-                }}
-                className="flex items-center border-b border-slate-100 active:bg-slate-50 transition-colors"
-                style={{ minHeight: 56 }}
+                data-mobile-wish-row
+                data-item-id={item.id}
+                className="relative overflow-hidden border-b border-slate-100"
               >
+                {swipedItemId === item.id && (
+                  <button
+                    type="button"
+                    onClick={() => void handleSwipeDelete(item.id)}
+                    disabled={deletingItemId === item.id}
+                    aria-label={`删除${item.productName || "这一项"}`}
+                    className="absolute inset-y-0 right-0 flex w-20 items-center justify-center gap-1 bg-rose-600 text-sm font-medium text-white disabled:opacity-60"
+                  >
+                    <Trash className="h-4 w-4" />
+                    {deletingItemId === item.id ? "删除中" : "删除"}
+                  </button>
+                )}
+                <div
+                  onPointerDown={(event) => handleSwipeStart(event, item.id)}
+                  onPointerUp={(event) => handleSwipeEnd(event, item.id)}
+                  onPointerCancel={() => {
+                    swipeStartRef.current = null;
+                  }}
+                  onClick={() => {
+                    if (swipedItemId) {
+                      setSwipedItemId(null);
+                      return;
+                    }
+                    setDrawerItem(item);
+                    setQuantityInput(String(item.quantity ?? 1));
+                    setDrawerEditing(true);
+                    setDetailsExpanded(false);
+                  }}
+                  className={`relative z-10 flex items-center bg-white active:bg-slate-50 transition-transform duration-200 ${
+                    swipedItemId === item.id ? "-translate-x-20" : "translate-x-0"
+                  }`}
+                  style={{ minHeight: 56, touchAction: "pan-y" }}
+                >
                 {/* 图片 */}
                 <div className="w-12 h-12 flex-shrink-0 p-1.5">
                   {item.imageUrl ? (
@@ -365,6 +447,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   >
                     {STATUS_TEXT[item.status] || item.status}
                   </button>
+                </div>
                 </div>
               </div>
             ))}
@@ -453,22 +536,44 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-base font-bold text-slate-900">{drawerItem.boothNumber}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-xs ${
-                      drawerItem.type === "free"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {drawerItem.type === "free" ? "无料" : "有料"}
-                  </span>
+                  {drawerEditing ? (
+                    <div className="flex rounded-lg bg-slate-100 p-0.5" aria-label="制品类型">
+                      {([
+                        { value: "paid", label: "有料" },
+                        { value: "free", label: "无料" },
+                      ] as const).map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => handleDrawerTypeChange(option.value)}
+                          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                            drawerItem.type === option.value
+                              ? "bg-[#7F867B] text-white shadow-sm"
+                              : "text-slate-600"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs ${
+                        drawerItem.type === "free"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {drawerItem.type === "free" ? "无料" : "有料"}
+                    </span>
+                  )}
                   {drawerItem.priority && (
                     <span className="text-xs text-slate-400">{drawerItem.priority}</span>
                   )}
                   {/* 热度 */}
                   {(drawerItem.hotCount !== undefined && drawerItem.hotCount > 0) && (
                     <span className="flex items-center gap-0.5 text-xs text-orange-600 font-medium">
-                      <Flame className="w-3 h-3" weight="fill" />
+                      <Flame className="w-3 h-3" />
                       {drawerItem.hotCount}
                     </span>
                   )}
@@ -490,8 +595,12 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                     {drawerEditing ? (
                       <input
                         type="number"
-                        value={drawerItem.quantity?.toString() || "1"}
-                        onChange={(e) => handleDrawerUpdate("quantity", e.target.value ? Number(e.target.value) : 1)}
+                        min={0}
+                        value={quantityInput}
+                        onChange={(e) => {
+                          setQuantityInput(e.target.value);
+                          handleDrawerUpdate("quantity", e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)));
+                        }}
                         className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     ) : (
@@ -525,8 +634,12 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                     {drawerEditing ? (
                       <input
                         type="number"
-                        value={drawerItem.quantity?.toString() || "1"}
-                        onChange={(e) => handleDrawerUpdate("quantity", e.target.value ? Number(e.target.value) : 1)}
+                        min={0}
+                        value={quantityInput}
+                        onChange={(e) => {
+                          setQuantityInput(e.target.value);
+                          handleDrawerUpdate("quantity", e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)));
+                        }}
                         className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     ) : (
@@ -566,7 +679,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                       onClick={() => handleDrawerUpdate("status", opt.value)}
                       className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                         drawerItem.status === opt.value
-                          ? "bg-indigo-600 text-white"
+                          ? getStatusColor(opt.value)
                           : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                       }`}
                     >
@@ -638,10 +751,11 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
               </button>
               <button
                 onClick={handleDrawerDelete}
+                disabled={deletingItemId === drawerItem.id}
                 className="px-4 py-2.5 rounded-lg text-sm font-medium bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors flex items-center gap-1.5"
               >
                 <Trash className="w-4 h-4" />
-                删除
+                {deletingItemId === drawerItem.id ? "删除中" : "删除"}
               </button>
             </div>
           </div>

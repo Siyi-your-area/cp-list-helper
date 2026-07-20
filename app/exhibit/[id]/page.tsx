@@ -565,7 +565,7 @@ export default function ExhibitDetail() {
       }
       setIsMatching(false);
 
-      // 4. 构建心愿单条目并批量保存
+      // 4. 构建list条目并批量保存
       const newItems: Omit<WishItem, "id">[] = newInputs.map((input, index) => {
         const result = results[index];
         const type = detectTypeFromCPP(result);
@@ -637,7 +637,7 @@ export default function ExhibitDetail() {
     try {
       const ExcelJS = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("心愿单");
+      const worksheet = workbook.addWorksheet("list");
 
       worksheet.columns = [
         { header: "场馆", key: "venue", width: 8 },
@@ -703,7 +703,7 @@ export default function ExhibitDetail() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${eventInfo?.name || eventId}_心愿单.xlsx`;
+      link.download = `${eventInfo?.name || eventId}_list.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -811,9 +811,9 @@ export default function ExhibitDetail() {
             <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
             <Package className="w-6 h-6 text-slate-400" />
           </div>
-          <h1 className="text-lg font-bold text-slate-900 mb-2">无法查看这份心愿单</h1>
+          <h1 className="text-lg font-bold text-slate-900 mb-2">无法查看这份list</h1>
           <p className="text-sm text-slate-500 leading-6 mb-5">
-            当前设备还没有加入这份 list。请回到首页输入四位清单识别码后再查看。
+            当前设备还没有加入这份list。请回到首页输入四位list识别码后再查看。
           </p>
           <button
             onClick={() => router.push("/")}
@@ -843,12 +843,12 @@ export default function ExhibitDetail() {
                 <h1 className="text-lg sm:text-2xl font-bold text-slate-900 font-display">{eventInfo?.name || eventId}</h1>
                 <p className="text-slate-500 text-xs sm:text-sm">{eventInfo?.date || ""}</p>
               </div>
-              {/* 清单识别码 */}
+              {/* list识别码 */}
               {shareCode && (
                 <button
                   onClick={handleCopyShareCode}
                   className="ml-2 flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors group"
-                  title="点击复制清单识别码"
+                  title="点击复制list识别码"
                 >
                   <span className="text-sm font-mono font-bold text-amber-700 tracking-wider">{shareCode}</span>
                   {copied ? (
@@ -1283,7 +1283,7 @@ export default function ExhibitDetail() {
           <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
             <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full" />
             <div className="text-center">
-              <p className="text-slate-800 font-semibold text-lg">正在导入心愿单</p>
+              <p className="text-slate-800 font-semibold text-lg">正在导入 CPP 心愿单</p>
               <p className="text-slate-500 text-sm mt-1">正在匹配展品信息（可能需要30s以上，请耐心等待）</p>
             </div>
           </div>
@@ -1300,7 +1300,7 @@ export default function ExhibitDetail() {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-display">导入成功</h2>
-                <p className="text-sm text-slate-500">心愿单已保存并同步</p>
+                <p className="text-sm text-slate-500">list已保存并同步</p>
               </div>
             </div>
 
@@ -1475,7 +1475,7 @@ export default function ExhibitDetail() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-900 font-display">上传心愿单</h2>
+              <h2 className="text-xl font-bold text-slate-900 font-display">上传CPP心愿单</h2>
               <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-5 h-5" />
               </button>
@@ -1492,7 +1492,7 @@ export default function ExhibitDetail() {
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                     <label className="text-sm font-medium text-slate-700">
-                      上传心愿单 Excel
+                      上传CPP心愿单 Excel
                     </label>
                     <CppUploadGuide />
                   </div>

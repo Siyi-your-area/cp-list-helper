@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   try {
     const allowed = await hasEventAccess(eventId, clientId);
     if (!allowed) {
-      return NextResponse.json({ error: "当前设备无权获取该清单识别码" }, { status: 403 });
+      return NextResponse.json({ error: "当前设备无权获取该list识别码" }, { status: 403 });
     }
 
     const code = await getOrCreateShareCode(eventId);
@@ -48,12 +48,12 @@ export async function POST(request: NextRequest) {
     // 只允许 4 位字母数字
     const normalized = code.toUpperCase().trim();
     if (!/^[A-HJ-NP-Z2-9]{4}$/.test(normalized)) {
-      return NextResponse.json({ error: "清单识别码格式不正确（应为4位字母数字）" }, { status: 400 });
+      return NextResponse.json({ error: "list识别码格式不正确（应为4位字母数字）" }, { status: 400 });
     }
 
     const result = await resolveShareCode(normalized);
     if (!result) {
-      return NextResponse.json({ error: "找不到对应的心愿单，请检查清单识别码" }, { status: 404 });
+      return NextResponse.json({ error: "找不到对应的list，请检查list识别码" }, { status: 404 });
     }
 
     await grantEventAccess(result.eventId, clientId, "viewer");

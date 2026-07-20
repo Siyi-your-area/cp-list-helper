@@ -10,8 +10,8 @@ const notoSansSC = Noto_Sans_SC({
 });
 
 export const metadata: Metadata = {
-  title: "CP展会List帮手",
-  description: "同人展会心愿单管理工具",
+  title: "CP list帮手",
+  description: "同人展会list管理工具",
   creator: "IcebearHuang",
   icons: {
     icon: "/icon.svg",

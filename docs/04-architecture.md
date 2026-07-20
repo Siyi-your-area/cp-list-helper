@@ -1,4 +1,4 @@
-# CP展会List帮手 - 技术架构说明
+# CP list帮手 - 技术架构说明
 
 **文档版本**：v1  
 **创建日期**：2026-07-05  
@@ -8,7 +8,7 @@
 
 ## 一、项目概述
 
-CP List Helper 是一个面向同人展会参展者的心愿单管理 Web 应用。核心功能是上传 CPP 心愿单 Excel 后，自动匹配摊位信息、作者和图片，并提供可编辑表格、搜索筛选、购买记录、Excel 导出等功能。
+CP list帮手是一个面向同人展会参展者的list管理 Web 应用。核心功能是上传 CPP 心愿单 Excel 后，自动匹配摊位信息、作者和图片，并提供可编辑表格、搜索筛选、购买记录、Excel 导出等功能。
 
 **线上地址**：https://cp-list-helper.vercel.app  
 **源码仓库**：https://github.com/Siyi-your-area/cp-list-helper

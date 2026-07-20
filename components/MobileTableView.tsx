@@ -363,7 +363,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
       <div ref={listRef} className="flex-1 overflow-y-auto">
         {processedItems.length === 0 ? (
           <div className="text-center py-16 text-slate-400 text-sm">
-            {items.length === 0 ? "暂无心愿单条目" : "没有匹配的结果"}
+            {items.length === 0 ? "暂无list条目" : "没有匹配的结果"}
           </div>
         ) : (
           <div>

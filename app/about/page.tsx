@@ -15,7 +15,7 @@ const statements = [
     title: "数据来源与权利归属",
     icon: Database,
     content:
-      "摊位、社团、作品、图片及活动信息主要整理自 CPP 无差别同人站公开页面，仅用于帮助用户规划和整理个人心愿单。相关内容的著作权、商标权及其他合法权益仍归原作者、社团、上传者或平台权利人所有。",
+      "摊位、社团、作品、图片及活动信息主要整理自 CPP 无差别同人站公开页面，仅用于帮助用户规划和整理个人list。相关内容的著作权、商标权及其他合法权益仍归原作者、社团、上传者或平台权利人所有。",
   },
   {
     title: "允许用途与使用限制",
@@ -52,7 +52,7 @@ export default function AboutPage() {
             <BearLogo className="h-9 w-9 sm:h-10 sm:w-10" />
             <div className="min-w-0">
               <h1 className="text-sm font-bold leading-5 sm:text-xl">开发者信息与数据版权声明</h1>
-              <p className="text-xs text-slate-500 sm:text-sm">CP展会 List 帮手</p>
+              <p className="text-xs text-slate-500 sm:text-sm">CP list帮手</p>
             </div>
           </div>
           <Link href="/" className="ui-btn-outline shrink-0 px-3">
@@ -71,7 +71,7 @@ export default function AboutPage() {
             <div>
               <h2 className="text-xl font-bold">IcebearHuang</h2>
               <p className="mt-1 text-sm text-slate-500">
-                独立开发与维护这款同人展会心愿单工具。
+                独立开发与维护这款同人展会list工具。
               </p>
             </div>
             <a

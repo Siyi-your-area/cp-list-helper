@@ -1,10 +1,10 @@
-# CP List Helper
+# CP list帮手
 
-CP 展会心愿单管理工具，帮助参展者导入 Excel 心愿单，并自动匹配 CPP / allcpp.cn 的展品信息，生成可在电脑和手机端同步查看的 list。
+同人展会list管理工具，帮助参展者导入 CPP 心愿单 Excel，自动匹配 CPP / allcpp.cn 的展品信息，并在电脑和手机端同步管理。
 
 ## 功能特性
 
-- 上传心愿单 Excel，自动解析摊位号、制品名称、作者等字段
+- 上传 CPP 心愿单 Excel，自动解析摊位号、制品名称、作者等字段
 - 基于 Supabase 中的 CPP 原始展品数据自动匹配图片、作者、热度、详情
 - 支持 CP32 一期、CP32 二期等 list，CP32 原始数据通过 `event_id=cp32` + `day_id` 区分一期/二期
 - 每份 list 自动生成 4 位邀请码，可在手机端和 PC 端访问同一份数据

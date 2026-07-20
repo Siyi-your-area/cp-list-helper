@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[Exhibits API] POST error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "创建心愿单失败" },
+      { error: error instanceof Error ? error.message : "创建list失败" },
       { status: 500 }
     );
   }

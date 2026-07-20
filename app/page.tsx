@@ -81,7 +81,7 @@ export default function Home() {
   const [deleting, setDeleting] = useState(false);
   const [clientId, setClientId] = useState("");
 
-  // ---- 清单识别码加入 ----
+  // ---- list识别码加入 ----
   const [inviteCode, setInviteCode] = useState("");
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState("");
@@ -131,11 +131,11 @@ export default function Home() {
 
     const trimmedListName = listName.trim();
     if (!trimmedListName) {
-      alert("请输入心愿单名称");
+      alert("请输入list名称");
       return;
     }
     if (trimmedListName.length > 50) {
-      alert("心愿单名称最多 50 个字");
+      alert("list名称最多 50 个字");
       return;
     }
 
@@ -143,7 +143,7 @@ export default function Home() {
       setCreating(true);
       const uploadInputs = createUploadFile ? await parseExcelFile(createUploadFile) : [];
       if (createUploadFile && uploadInputs.length === 0) {
-        throw new Error("上传文件中没有找到心愿单数据，请检查文件格式");
+        throw new Error("上传文件中没有找到 CPP 心愿单数据，请检查文件格式");
       }
 
       const listId = `${preset.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -160,7 +160,7 @@ export default function Home() {
       });
       const createResult = await createResponse.json();
       if (!createResponse.ok) {
-        throw new Error(createResult.error || "创建心愿单失败");
+        throw new Error(createResult.error || "创建list失败");
       }
 
       let importError: Error | null = null;
@@ -212,15 +212,15 @@ export default function Home() {
         }
         await createWishItemsAsync(listId, importedItems);
         } catch (error) {
-          importError = new Error(getErrorMessage(error, "导入心愿单失败"));
-          console.error("创建成功，但导入心愿单失败:", error);
+          importError = new Error(getErrorMessage(error, "导入 CPP 心愿单失败"));
+          console.error("创建成功，但导入 CPP 心愿单失败:", error);
         }
       }
 
       closeCreateModal();
       await loadExhibits();
       if (importError) {
-        alert(`心愿单已创建，但上传内容导入失败：${importError.message}`);
+        alert(`list已创建，但 CPP 心愿单导入失败：${importError.message}`);
       }
     } catch (error: any) {
       alert("创建失败: " + error.message);
@@ -246,11 +246,11 @@ export default function Home() {
   const handleJoinByCode = async () => {
     const code = inviteCode.trim().toUpperCase();
     if (code.length !== 4) {
-      setJoinError("请输入 4 位清单识别码");
+      setJoinError("请输入 4 位list识别码");
       return;
     }
     if (!/^[A-HJ-NP-Z2-9]{4}$/.test(code)) {
-      setJoinError("清单识别码格式不正确");
+      setJoinError("list识别码格式不正确");
       return;
     }
 
@@ -266,7 +266,7 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        setJoinError(data.error || "清单识别码无效");
+        setJoinError(data.error || "list识别码无效");
         return;
       }
 
@@ -288,9 +288,9 @@ export default function Home() {
               <BearLogo />
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 font-display">
-                  CP展会List帮手
+                  CP list帮手
                 </h1>
-                <p className="text-sm text-slate-500">同人展会心愿单管理工具</p>
+                <p className="text-sm text-slate-500">同人展会list管理工具</p>
               </div>
             </div>
             <NextLink
@@ -310,7 +310,7 @@ export default function Home() {
                 className="ui-btn-primary w-full active:scale-[0.98] sm:w-auto"
               >
                 <Plus className="h-4 w-4" />
-                <span>创建心愿单</span>
+                <span>创建展会list</span>
               </button>
             </div>
           </div>
@@ -342,14 +342,14 @@ export default function Home() {
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
                   <ListHeart className="h-8 w-8 text-slate-400" />
                 </div>
-                <h2 className="mb-2 text-xl font-semibold text-slate-700 font-display">还没有心愿单</h2>
-                <p className="text-sm text-slate-500">创建、导入或使用识别码加入第一份心愿单</p>
+                <h2 className="mb-2 text-xl font-semibold text-slate-700 font-display">还没有list</h2>
+                <p className="text-sm text-slate-500">创建、导入或使用识别码加入第一份list</p>
               </div>
             ) : (
               <>
                 <div className="my-8 flex items-center gap-4">
                   <div className="h-px flex-1 bg-slate-200" />
-                  <span className="text-sm text-slate-400">我的心愿单</span>
+                  <span className="text-sm text-slate-400">我的list</span>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
 
@@ -382,7 +382,7 @@ export default function Home() {
                     </div>
                     <div className="flex items-center gap-2">
                       <ListHeart className="w-4 h-4 text-slate-400" />
-                      <span>心愿单 <strong className="text-indigo-600">{exhibit.items.length}</strong> 件</span>
+                      <span>list <strong className="text-indigo-600">{exhibit.items.length}</strong> 件</span>
                     </div>
                   </div>
                   <div className="mt-5 pt-4 border-t border-slate-100">
@@ -429,7 +429,7 @@ export default function Home() {
           <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-slate-900 font-display">
-                {isImportMode ? "从 CPP 导入心愿单" : "创建展会心愿单"}
+                {isImportMode ? "从 CPP 导入list" : "创建展会list"}
               </h2>
               <button
                 onClick={closeCreateModal}
@@ -441,7 +441,7 @@ export default function Home() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">心愿单名称</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">list名称</label>
                 <input
                   type="text"
                   value={listName}
@@ -481,7 +481,7 @@ export default function Home() {
               <div>
                 <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                   <label className="text-sm font-medium text-slate-700">
-                    上传心愿单{" "}
+                    上传CPP心愿单{" "}
                     <span className="font-normal text-slate-400">
                       {isImportMode ? "（必填）" : "（可选）"}
                     </span>
@@ -514,7 +514,7 @@ export default function Home() {
                 className="ui-btn-primary flex-1 active:scale-[0.98]"
               >
                 {creating && <Spinner className="w-4 h-4 animate-spin" />}
-                {creating ? "处理中..." : isImportMode ? "导入并创建" : "创建"}
+                {creating ? "处理中..." : isImportMode ? "导入并创建" : "创建list"}
               </button>
               <button
                 onClick={closeCreateModal}
@@ -573,7 +573,7 @@ export default function Home() {
 }
 
 // ============================================================
-// 清单识别码输入卡片
+// list识别码输入卡片
 // ============================================================
 
 function InviteCodeCard({
@@ -601,12 +601,12 @@ function InviteCodeCard({
   };
 
   return (
-    <section className="h-full rounded-2xl border border-slate-200 bg-white p-5">
+    <section className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex items-center gap-2 mb-3">
         <LinkIcon className="h-5 w-5 text-indigo-600" />
-        <h3 className="text-sm font-semibold text-slate-900">使用清单识别码打开心愿单</h3>
+        <h3 className="text-sm font-semibold text-slate-900">使用list识别码打开list</h3>
       </div>
-      <div className="grid grid-cols-[minmax(0,20rem)_auto] items-center justify-start gap-2">
+      <div className="my-auto grid grid-cols-[minmax(0,20rem)_auto] items-center justify-center gap-2 py-4">
         <div className="relative">
           <input
             type="text"
@@ -618,7 +618,7 @@ function InviteCodeCard({
             autoCapitalize="characters"
             spellCheck={false}
             maxLength={4}
-            aria-label="4位清单识别码"
+            aria-label="4位list识别码"
             className="peer absolute inset-0 z-10 h-full w-full cursor-text opacity-0"
           />
           <div className="grid grid-cols-4 gap-2 sm:gap-3" aria-hidden="true">
@@ -666,7 +666,7 @@ function CppImportCard({ onImport }: { onImport: () => void }) {
         <h3 className="text-sm font-semibold text-slate-900">从 CPP 导入</h3>
       </div>
       <p className="mb-4 text-xs leading-5 text-slate-500">
-        支持 CP32 一期 / 二期、CPG08 心愿单 Excel，导入时请选择对应展会。
+        支持 CP32 一期 / 二期、CPG08 的 CPP 心愿单 Excel，导入时请选择对应展会。
       </p>
       <button
         type="button"

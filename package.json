@@ -1,7 +1,7 @@
 {
   "name": "cp-list-helper",
   "version": "1.0.0",
-  "description": "CP展会心愿单管理工具",
+  "description": "CP list帮手：同人展会list管理工具",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

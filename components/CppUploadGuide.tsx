@@ -40,8 +40,8 @@ const GUIDE_FLOWS: Record<
       },
       {
         image: "/guides/cpp-upload/upload.png",
-        alt: "CP 展会 List 帮手上传心愿单 Excel 文件",
-        title: "上传下载的心愿单",
+        alt: "CP list帮手上传 CPP 心愿单 Excel 文件",
+        title: "上传下载的 CPP 心愿单",
         description: "回到这里，选择刚刚下载的 Excel 文件并上传。",
       },
     ],
@@ -64,8 +64,8 @@ const GUIDE_FLOWS: Record<
       },
       {
         image: "/guides/cpp-upload/upload.png",
-        alt: "CP 展会 List 帮手上传心愿单 Excel 文件",
-        title: "上传导出的心愿单",
+        alt: "CP list帮手上传 CPP 心愿单 Excel 文件",
+        title: "上传导出的 CPP 心愿单",
         description: "回到这里，选择刚刚导出的表格文件并上传。",
       },
     ],

@@ -1,4 +1,4 @@
-# CP List Helper - Cloudflare OpenNext 部署指南
+# CP list帮手 - Cloudflare OpenNext 部署指南
 
 **文档版本**：v2  
 **更新日期**：2026-07-19

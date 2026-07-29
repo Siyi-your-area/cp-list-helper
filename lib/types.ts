@@ -14,7 +14,9 @@ export interface Exhibit {
   items: WishItem[];
   cppData?: CPPDataItem[]; // 已废弃，保留兼容
   shareCode?: string;       // 分享码（4位字母数字）
-  accessRole?: "owner" | "viewer"; // 当前设备对这份 list 的访问关系
+  accessRole?: ListRole;
+  isCreator?: boolean;
+  collaboratorCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -45,6 +47,26 @@ export interface WishItem {
   // 匹配相关字段（自动填充）
   matchConfidence?: MatchConfidence;
   matchedCPPItem?: NormalizedCPPItem;
+  version?: number;
+  updatedAt?: number;
+}
+
+export type ListRole = "owner" | "editor";
+
+export interface EventMembership {
+  role: ListRole;
+  isCreator: boolean;
+  memberCount: number;
+  collaboratorCount: number;
+}
+
+export type SyncStatus = "connecting" | "live" | "reconnecting" | "offline" | "error";
+
+export interface WishItemConflict {
+  itemId: string;
+  kind: "updated" | "deleted";
+  local: WishItem;
+  remote: WishItem | null;
 }
 
 /**

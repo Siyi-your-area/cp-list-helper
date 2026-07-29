@@ -29,7 +29,8 @@ export function getExhibits(): Exhibit[] {
 }
 
 export async function getExhibitsAsync(clientId?: string): Promise<Exhibit[]> {
-  return getExhibitsFromDB(clientId);
+  void clientId;
+  return getExhibitsFromDB();
 }
 
 export function createExhibit(name: string, _venue: string, date: string): Exhibit {
@@ -83,7 +84,7 @@ export async function updateWishItemAsync(
   itemId: string,
   updates: Partial<WishItem>
 ): Promise<WishItem | null> {
-  return updateWishItem(eventId, itemId, updates);
+  return updateWishItem(eventId, itemId, updates, updates.version);
 }
 
 export async function saveWishItemDraftsAsync(

@@ -15,9 +15,11 @@ import {
 import {
   getCPPItems,
   getCPPItemsByBooths,
+  getEventMembership,
   resolveCPPMatchScope,
   searchCPPItems,
 } from "@/lib/db-service";
+import { authenticateRequest } from "@/lib/supabase-server";
 import type {
   MatchInput,
   MatchResult,
@@ -79,6 +81,7 @@ function mergeCandidate(
 export async function POST(request: NextRequest) {
   const requestStart = performance.now();
   try {
+    const { client } = await authenticateRequest(request);
     const parseBodyStart = performance.now();
     const body = await request.json();
     const items: MatchInput[] = Array.isArray(body.items) ? body.items : [];
@@ -95,8 +98,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `单次最多匹配 ${MAX_ITEMS} 条` }, { status: 400 });
     }
 
+    const requestedEventId = typeof body.eventId === "string" ? body.eventId : "";
+    if (!requestedEventId || !(await getEventMembership(requestedEventId, client))) {
+      return NextResponse.json({ error: "无权为这份list执行匹配" }, { status: 403 });
+    }
     const scopeStart = performance.now();
-    const scope = await resolveCPPMatchScope(body.eventId || "cp32");
+    const scope = await resolveCPPMatchScope(requestedEventId, client, false);
     const eventId = scope.eventId;
     const dayIds = scope.dayIds || [];
     const externalDayIds = dayIds.length > 0
@@ -112,7 +119,8 @@ export async function POST(request: NextRequest) {
       eventId,
       items.map((item) => item.boothNumber),
       dayIds,
-      items.map((item) => item.doujinshiId).filter((value): value is number => Boolean(value))
+      items.map((item) => item.doujinshiId).filter((value): value is number => Boolean(value)),
+      client
     );
     const candidateQueryMs = elapsed(candidateStart);
 
@@ -139,7 +147,7 @@ export async function POST(request: NextRequest) {
       DB_SEARCH_CONCURRENCY,
       async (task) => {
         try {
-          const freshItems = await searchCPPItems(eventId, task.keyword, 50, dayIds);
+          const freshItems = await searchCPPItems(eventId, task.keyword, 50, dayIds, client);
           if (freshItems.length === 0) return;
           const freshIndex = createMatchIndex(freshItems);
           for (const indexValue of task.indices) {
@@ -281,31 +289,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ results, stats, timings });
   } catch (error: any) {
     console.error("[CPP Match] 匹配失败:", error);
+    const unauthorized = error?.message === "AUTH_REQUIRED";
     return NextResponse.json(
       {
-        error: `匹配服务异常: ${error.message}`,
+        error: unauthorized ? "登录状态无效，请刷新后重试" : `匹配服务异常: ${error.message}`,
         timings: { serverTotalMs: elapsed(requestStart) },
       },
-      { status: 500 }
+      { status: unauthorized ? 401 : 500 }
     );
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
+    const { client } = await authenticateRequest(request);
     const { searchParams } = new URL(request.url);
     const booth = searchParams.get("booth");
-    const scope = await resolveCPPMatchScope(searchParams.get("event") || "cp32");
+    const requestedEventId = searchParams.get("event") || "";
+    if (!requestedEventId || !(await getEventMembership(requestedEventId, client))) {
+      return NextResponse.json({ error: "无权查询这份list" }, { status: 403 });
+    }
+    const scope = await resolveCPPMatchScope(requestedEventId, client, false);
     if (!booth) {
       return NextResponse.json({ error: "缺少 booth 参数" }, { status: 400 });
     }
-    const items = await getCPPItems(scope.eventId, scope.dayIds);
+    const items = await getCPPItems(scope.eventId, scope.dayIds, client);
     const boothItems = new MatchIndex(items).getByBooth(booth);
     return NextResponse.json({ booth, count: boothItems.length, items: boothItems });
   } catch (error: any) {
+    const unauthorized = error?.message === "AUTH_REQUIRED";
     return NextResponse.json(
-      { error: `查询服务异常: ${error.message}` },
-      { status: 500 }
+      { error: unauthorized ? "登录状态无效，请刷新后重试" : `查询服务异常: ${error.message}` },
+      { status: unauthorized ? 401 : 500 }
     );
   }
 }

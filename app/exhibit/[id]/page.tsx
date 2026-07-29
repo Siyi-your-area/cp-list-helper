@@ -31,7 +31,7 @@ import { parseExcelFile } from "@/lib/excel-parser";
 import { useExhibitData } from "@/hooks/useExhibitData";
 import { MobileTableView } from "@/components/MobileTableView";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
-import { getClientId } from "@/lib/client-id";
+import { authFetch } from "@/lib/auth-client";
 import {
   buildReviewNote,
   getVisibleWishNote,
@@ -129,8 +129,12 @@ export default function ExhibitDetail() {
   const {
     items,
     eventInfo,
+    membership,
     loading,
     accessDenied,
+    loadError,
+    syncStatus,
+    conflicts,
     addItem,
     updateItem,
     updateItemLocally,
@@ -139,6 +143,8 @@ export default function ExhibitDetail() {
     removeItems,
     addItems,
     refresh,
+    useLatestConflict,
+    keepMyConflict,
   } = useExhibitData(eventId);
 
   const [searchKeyword, setSearchKeyword] = useState("");
@@ -165,9 +171,9 @@ export default function ExhibitDetail() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (!membership) return;
     // 页面加载时获取/生成分享码
-    const clientId = getClientId();
-    fetch(`/api/share?eventId=${encodeURIComponent(eventId)}&clientId=${encodeURIComponent(clientId)}`)
+    authFetch(`/api/share?eventId=${encodeURIComponent(eventId)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.code && data.code !== "NEED_MIGRATION") {
@@ -175,7 +181,7 @@ export default function ExhibitDetail() {
         }
       })
       .catch(() => {}); // 静默失败
-  }, [eventId]);
+  }, [eventId, membership]);
 
   const handleCopyShareCode = async () => {
     if (!shareCode) return;
@@ -357,7 +363,7 @@ export default function ExhibitDetail() {
 
     try {
       setResolvingReviews(true);
-      const response = await fetch("/api/cpp/match", {
+      const response = await authFetch("/api/cpp/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -542,7 +548,7 @@ export default function ExhibitDetail() {
       let responseTimings: any = null;
       try {
         const requestStartedAt = performance.now();
-        const response = await fetch("/api/cpp/match", {
+        const response = await authFetch("/api/cpp/match", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -804,6 +810,18 @@ export default function ExhibitDetail() {
     return <div className="min-h-screen flex items-center justify-center">加载中...</div>;
   }
 
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+        <div role="alert" className="max-w-md rounded-2xl border border-rose-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="mb-2 text-lg font-bold text-slate-900">身份或数据加载失败</h1>
+          <p className="mb-5 text-sm leading-6 text-rose-700">{loadError}</p>
+          <button onClick={() => window.location.reload()} className="ui-btn-primary w-full">重新加载</button>
+        </div>
+      </div>
+    );
+  }
+
   if (accessDenied) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
@@ -813,7 +831,7 @@ export default function ExhibitDetail() {
           </div>
           <h1 className="text-lg font-bold text-slate-900 mb-2">无法查看这份list</h1>
           <p className="text-sm text-slate-500 leading-6 mb-5">
-            当前设备还没有加入这份list。请回到首页输入四位list识别码后再查看。
+            当前匿名账号还没有加入这份list。请回到首页输入四位list识别码后再查看。
           </p>
           <button
             onClick={() => router.push("/")}
@@ -841,7 +859,11 @@ export default function ExhibitDetail() {
               </button>
               <div>
                 <h1 className="text-lg sm:text-2xl font-bold text-slate-900 font-display">{eventInfo?.name || eventId}</h1>
-                <p className="text-slate-500 text-xs sm:text-sm">{eventInfo?.date || ""}</p>
+                <p className="text-slate-500 text-xs sm:text-sm">
+                  {eventInfo?.date || ""} · {membership?.role === "owner" ? "创建人" : "协作者"}
+                  {membership ? ` · ${membership.collaboratorCount} 位协作者` : ""}
+                  {` · ${syncStatus === "live" ? "已实时同步" : syncStatus === "offline" ? "离线" : "同步连接中"}`}
+                </p>
               </div>
               {/* list识别码 */}
               {shareCode && (
@@ -897,6 +919,27 @@ export default function ExhibitDetail() {
           </div>
         </div>
       </header>
+
+      {conflicts.length > 0 && (
+        <div role="alert" className="mx-auto mt-3 flex w-[calc(100%-1.5rem)] max-w-7xl flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            发现协作冲突：{conflicts[0].kind === "deleted" ? "该条目已被协作者删除；确认后会移除当前保留的本地草稿。" : "协作者已更新该条目，你的草稿未被覆盖。"}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={() => useLatestConflict(conflicts[0].itemId)} className="ui-btn-secondary">
+              {conflicts[0].kind === "deleted" ? "确认删除" : "使用最新数据"}
+            </button>
+            {conflicts[0].kind === "updated" && (
+              <button
+                onClick={() => void keepMyConflict(conflicts[0].itemId).catch((error) => alert(`解决冲突失败：${(error as Error).message}`))}
+                className="ui-btn-primary"
+              >
+                保留我的修改
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {reviewItems.length > 0 && (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50">
@@ -1080,7 +1123,7 @@ export default function ExhibitDetail() {
                       )}
                     </Td>
                     {/* 制品名称 */}
-                    <Td maxWidth="200px" wrap>
+                    <Td minWidth={editMode ? "216px" : undefined} maxWidth={editMode ? undefined : "200px"} wrap>
                       {editMode ? (
                         <input type="text" value={item.productName} onChange={(e) => handleDraftItem(item.id, "productName", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
@@ -1088,7 +1131,7 @@ export default function ExhibitDetail() {
                       )}
                     </Td>
                     {/* 作者 */}
-                    <Td maxWidth="120px" wrap>
+                    <Td minWidth={editMode ? "152px" : undefined} maxWidth={editMode ? undefined : "120px"} wrap>
                       {editMode ? (
                         <input type="text" value={item.author || ""} onChange={(e) => handleDraftItem(item.id, "author", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (

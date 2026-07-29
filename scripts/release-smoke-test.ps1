@@ -1,159 +1,114 @@
 param(
-  [string]$BaseUrl = "http://localhost:3000"
+  [string]$BaseUrl = "http://localhost:3000",
+  [switch]$ConfirmIsolatedTestDatabase
 )
 
 $ErrorActionPreference = "Stop"
 
+if (-not $ConfirmIsolatedTestDatabase) {
+  throw "This script writes and deletes test data. Re-run only against an isolated Supabase project with -ConfirmIsolatedTestDatabase."
+}
+
 function Assert-True {
   param([bool]$Condition, [string]$Message)
-  if (-not $Condition) {
-    throw "ASSERTION FAILED: $Message"
-  }
+  if (-not $Condition) { throw "ASSERTION FAILED: $Message" }
   Write-Host "PASS: $Message"
 }
 
-Get-Content (Join-Path $PSScriptRoot "..\.env.local") | ForEach-Object {
-  if ($_ -match "^([^#=]+)=(.*)$") {
-    [Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+function New-AnonymousIdentity {
+  $headers = @{ apikey = $script:anonKey; "Content-Type" = "application/json" }
+  $session = Invoke-RestMethod -Method Post -Uri "$script:supabaseUrl/auth/v1/signup" -Headers $headers -Body "{}"
+  if (-not $session.access_token -or -not $session.user.id) { throw "Anonymous Auth is not enabled" }
+  return @{
+    UserId = $session.user.id
+    ApiHeaders = @{ Authorization = "Bearer $($session.access_token)"; "Content-Type" = "application/json" }
+    RestHeaders = @{ apikey = $script:anonKey; Authorization = "Bearer $($session.access_token)"; Prefer = "return=representation" }
   }
+}
+
+Get-Content (Join-Path $PSScriptRoot "..\.env.local") | ForEach-Object {
+  if ($_ -match "^([^#=]+)=(.*)$") { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process") }
 }
 
 $supabaseUrl = $env:NEXT_PUBLIC_SUPABASE_URL
 $anonKey = $env:NEXT_PUBLIC_SUPABASE_ANON_KEY
-if (-not $supabaseUrl -or -not $anonKey) {
-  throw "Missing Supabase test configuration"
-}
+if (-not $supabaseUrl -or -not $anonKey) { throw "Missing isolated Supabase test configuration" }
 
-$restHeaders = @{
-  apikey = $anonKey
-  Authorization = "Bearer $anonKey"
-}
-$jsonHeaders = @{
-  "Content-Type" = "application/json"
-}
-
+$owner = New-AnonymousIdentity
+$editor = New-AnonymousIdentity
+$stranger = New-AnonymousIdentity
 $suffix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
-$eventId = "codex-release-test-$suffix"
-$ownerId = "owner-$suffix"
-$viewerId = "viewer-$suffix"
-$strangerId = "stranger-$suffix"
+$eventId = "codex-security-test-$suffix"
 $shareCode = $null
 
 try {
   $createBody = @{
     id = $eventId
-    name = "Codex release smoke test"
+    name = "Codex security smoke test"
     days = @(@{ id = "test"; name = "test-day" })
     cppEventId = "cp32"
-    clientId = $ownerId
   } | ConvertTo-Json -Depth 5
-  $created = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/exhibits" -Headers $jsonHeaders -Body $createBody
-  Assert-True ($created.id -eq $eventId) "owner can create a list"
-
-  $ownerAccess = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/event_access?select=event_id,role&event_id=eq.$eventId&client_id=eq.$ownerId" -Headers $restHeaders
-  Assert-True ($ownerAccess.Count -eq 1 -and $ownerAccess[0].role -eq "owner") "created list is assigned to owner device"
+  $created = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/exhibits" -Headers $owner.ApiHeaders -Body $createBody
+  Assert-True ($created.id -eq $eventId -and $created.accessRole -eq "owner") "authenticated owner can atomically create a list"
 
   try {
-    Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/share?eventId=$eventId&clientId=$strangerId" | Out-Null
+    Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/share?eventId=$eventId" -Headers $stranger.ApiHeaders | Out-Null
     throw "stranger unexpectedly received a list code"
   } catch {
-    $status = [int]$_.Exception.Response.StatusCode
-    Assert-True ($status -eq 403) "unknown device cannot read list code"
+    Assert-True ([int]$_.Exception.Response.StatusCode -eq 403) "stranger cannot read list code"
   }
 
-  $ownerCodeResult = Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/share?eventId=$eventId&clientId=$ownerId"
-  $shareCode = $ownerCodeResult.code
-  Assert-True ($shareCode -match "^[A-HJ-NP-Z2-9]{4}$") "owner receives a valid four-character list code"
+  $ownerCode = Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/share?eventId=$eventId" -Headers $owner.ApiHeaders
+  $shareCode = $ownerCode.code
+  Assert-True ($shareCode -match "^[A-HJ-NP-Z2-9]{4}$") "owner receives a four-character code"
 
-  $joinBody = @{ code = $shareCode; clientId = $viewerId } | ConvertTo-Json
-  $joined = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/share" -Headers $jsonHeaders -Body $joinBody
-  Assert-True ($joined.eventId -eq $eventId) "second device can join using the list code"
+  $joinBody = @{ code = $shareCode } | ConvertTo-Json
+  $joined = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/share" -Headers $editor.ApiHeaders -Body $joinBody
+  Assert-True ($joined.eventId -eq $eventId) "second anonymous account joins as editor"
 
-  $viewerAccess = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/event_access?select=event_id,role&event_id=eq.$eventId&client_id=eq.$viewerId" -Headers $restHeaders
-  Assert-True ($viewerAccess.Count -eq 1 -and $viewerAccess[0].role -eq "viewer") "joined device receives viewer access"
+  $editorMembership = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/list_members?select=event_id,role&event_id=eq.$eventId" -Headers $editor.RestHeaders
+  Assert-True ($editorMembership.Count -eq 1 -and $editorMembership[0].role -eq "editor") "list_members RLS exposes only the caller membership"
 
-  $itemRows = @(
-    @{
-      event_id = $eventId
-      booth_number = "T-A01"
-      product_name = "batch-test-one"
-      item_type = "paid"
-      status = "pending"
-      price = 10
-      quantity = 1
-      sort_order = 0
-    },
-    @{
-      event_id = $eventId
-      booth_number = "T-A02"
-      product_name = "batch-test-two"
-      item_type = "paid"
-      status = "pending"
-      price = 20
-      quantity = 2
-      sort_order = 1
-    }
-  )
-  $insertHeaders = $restHeaders.Clone()
-  $insertHeaders["Prefer"] = "return=representation"
-  $inserted = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/wish_items" -Headers $insertHeaders -ContentType "application/json" -Body ($itemRows | ConvertTo-Json -Depth 5)
-  Assert-True ($inserted.Count -eq 2) "Excel-style batch insert creates all rows in one request"
+  $item = @{
+    event_id = $eventId; booth_number = "T-A01"; product_name = "cas-test"
+    item_type = "paid"; status = "pending"; quantity = 1; sort_order = 0
+  } | ConvertTo-Json
+  $inserted = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/wish_items" -Headers $editor.RestHeaders -ContentType "application/json" -Body $item
+  Assert-True ($inserted.Count -eq 1 -and $inserted[0].version -eq 1) "editor can insert wish item"
 
-  $upsertRows = @($inserted | ForEach-Object {
-    @{
-      id = $_.id
-      event_id = $eventId
-      booth_number = $_.booth_number
-      product_name = $_.product_name
-      author = $_.author
-      image_url = $_.image_url
-      item_type = $_.item_type
-      status = "purchased"
-      priority = $_.priority
-      note = "batch-save"
-      price = ([decimal]$_.price + 1)
-      quantity = $_.quantity
-      purchase_limit = $_.purchase_limit
-      sort_order = $_.sort_order
-      cpp_item_id = $_.cpp_item_id
-      hot_count = $_.hot_count
-      description = $_.description
-    }
-  })
-  $upsertHeaders = $restHeaders.Clone()
-  $upsertHeaders["Prefer"] = "resolution=merge-duplicates,return=representation"
-  $saved = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/wish_items?on_conflict=id" -Headers $upsertHeaders -ContentType "application/json" -Body ($upsertRows | ConvertTo-Json -Depth 5)
-  Assert-True ($saved.Count -eq 2 -and ($saved | Where-Object { $_.status -ne "purchased" }).Count -eq 0) "edit drafts are saved as one batch upsert"
-
-  $itemIds = @($inserted | ForEach-Object { $_.id })
-  $idFilter = $itemIds -join ","
-  Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/wish_items?event_id=eq.$eventId&id=in.($idFilter)" -Headers $restHeaders | Out-Null
-  $remaining = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/wish_items?select=id&event_id=eq.$eventId" -Headers $restHeaders
-  Assert-True ($remaining.Count -eq 0) "batch delete removes all selected rows in one request"
-
-  Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/event_access?event_id=eq.$eventId&client_id=eq.$viewerId" -Headers $restHeaders | Out-Null
-  $ownerStillPresent = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/event_access?select=role&event_id=eq.$eventId&client_id=eq.$ownerId" -Headers $restHeaders
-  $eventStillPresent = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/events?select=id&id=eq.$eventId" -Headers $restHeaders
-  Assert-True ($ownerStillPresent.Count -eq 1 -and $eventStillPresent.Count -eq 1) "viewer removal does not delete owner access or source list"
-
-  Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/event_access?event_id=eq.$eventId" -Headers $restHeaders | Out-Null
-  Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/events?id=eq.$eventId" -Headers $restHeaders | Out-Null
+  $casBody = @{
+    p_event_id = $eventId
+    p_item_id = $inserted[0].id
+    p_expected_version = 1
+    p_patch = @{ status = "purchased"; note = "cas-save" }
+  } | ConvertTo-Json -Depth 5
+  $saved = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/save_wish_item_cas" -Headers $owner.RestHeaders -ContentType "application/json" -Body $casBody
+  Assert-True ($saved.status -eq "purchased" -and $saved.version -eq 2) "owner CAS save increments version"
 
   try {
-    Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/share" -Headers $jsonHeaders -Body $joinBody | Out-Null
-    throw "deleted list code unexpectedly resolved"
+    Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/save_wish_item_cas" -Headers $editor.RestHeaders -ContentType "application/json" -Body $casBody | Out-Null
+    throw "stale CAS unexpectedly succeeded"
   } catch {
-    $status = [int]$_.Exception.Response.StatusCode
-    Assert-True ($status -eq 404) "deleted owner list invalidates its list code"
+    Assert-True ([int]$_.Exception.Response.StatusCode -ge 400) "stale CAS is rejected"
   }
 
+  Invoke-RestMethod -Method Delete -Uri "$BaseUrl/api/exhibits/$eventId" -Headers $editor.ApiHeaders | Out-Null
+  $ownerMembership = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/list_members?select=role&event_id=eq.$eventId" -Headers $owner.RestHeaders
+  Assert-True ($ownerMembership.Count -eq 1 -and $ownerMembership[0].role -eq "owner") "editor leave does not delete source list"
+
+  $rejoined = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/share" -Headers $editor.ApiHeaders -Body $joinBody
+  Assert-True ($rejoined.eventId -eq $eventId) "editor can idempotently rejoin"
+
+  Invoke-RestMethod -Method Delete -Uri "$BaseUrl/api/exhibits/$eventId" -Headers $owner.ApiHeaders | Out-Null
+  try {
+    Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/share" -Headers $stranger.ApiHeaders -Body $joinBody | Out-Null
+    throw "deleted code unexpectedly resolved"
+  } catch {
+    Assert-True ([int]$_.Exception.Response.StatusCode -eq 400) "owner deletion invalidates old code with uniform failure"
+  }
   Write-Host "SMOKE_TEST_OK event=$eventId"
 } finally {
-  try {
-    Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/wish_items?event_id=eq.$eventId" -Headers $restHeaders | Out-Null
-    Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/event_access?event_id=eq.$eventId" -Headers $restHeaders | Out-Null
-    Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/events?id=eq.$eventId" -Headers $restHeaders | Out-Null
-  } catch {
-    Write-Warning "Cleanup needs attention for $eventId`: $($_.Exception.Message)"
+  try { Invoke-RestMethod -Method Delete -Uri "$BaseUrl/api/exhibits/$eventId" -Headers $owner.ApiHeaders | Out-Null } catch {
+    Write-Warning "Cleanup may need attention for $eventId`: $($_.Exception.Message)"
   }
 }

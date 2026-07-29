@@ -21,9 +21,9 @@ import type { Exhibit, MatchResult, WishItem } from "@/lib/types";
 import {
   getExhibitsAsync,
   createWishItemsAsync,
-  deleteExhibitAsync,
 } from "@/lib/storage";
 import { getClientId } from "@/lib/client-id";
+import { authFetch, claimLegacyAccess, ensureAnonymousSession } from "@/lib/auth-client";
 import { parseExcelFile } from "@/lib/excel-parser";
 import { buildReviewNote } from "@/lib/match-review";
 import { BearLogo } from "@/components/BearLogo";
@@ -79,7 +79,7 @@ export default function Home() {
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Exhibit | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [clientId, setClientId] = useState("");
+  const [authError, setAuthError] = useState("");
 
   // ---- list识别码加入 ----
   const [inviteCode, setInviteCode] = useState("");
@@ -87,21 +87,28 @@ export default function Home() {
   const [joinError, setJoinError] = useState("");
 
   useEffect(() => {
-    setClientId(getClientId());
+    const legacyClientId = getClientId();
+    void (async () => {
+      try {
+        await ensureAnonymousSession();
+        await claimLegacyAccess(legacyClientId);
+        await loadExhibits();
+      } catch (error) {
+        setAuthError(getErrorMessage(error, "身份初始化失败"));
+        setLoading(false);
+      }
+    })();
   }, []);
-
-  useEffect(() => {
-    if (!clientId) return;
-    loadExhibits();
-  }, [clientId]);
 
   async function loadExhibits() {
     try {
       setLoading(true);
-      const data = await getExhibitsAsync(clientId);
+      setAuthError("");
+      const data = await getExhibitsAsync();
       setExhibits(data);
     } catch (error) {
       console.error("加载展会失败:", error);
+      setAuthError(getErrorMessage(error, "读取list失败，请检查身份或数据库迁移"));
     } finally {
       setLoading(false);
     }
@@ -147,7 +154,7 @@ export default function Home() {
       }
 
       const listId = `${preset.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      const createResponse = await fetch("/api/exhibits", {
+      const createResponse = await authFetch("/api/exhibits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -155,7 +162,6 @@ export default function Home() {
           name: trimmedListName,
           days: preset.days,
           cppEventId: preset.cppEventId,
-          clientId,
         }),
       });
       const createResult = await createResponse.json();
@@ -168,7 +174,7 @@ export default function Home() {
         try {
         let results: MatchResult[] = [];
         try {
-          const response = await fetch("/api/cpp/match", {
+          const response = await authFetch("/api/cpp/match", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ items: uploadInputs, eventId: listId }),
@@ -233,7 +239,9 @@ export default function Home() {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
-      await deleteExhibitAsync(deleteTarget.id, clientId);
+      const response = await authFetch(`/api/exhibits/${encodeURIComponent(deleteTarget.id)}`, { method: "DELETE" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "删除或移除失败");
       setDeleteTarget(null);
       await loadExhibits();
     } catch (error: any) {
@@ -258,10 +266,10 @@ export default function Home() {
     setJoinError("");
 
     try {
-      const response = await fetch("/api/share", {
+      const response = await authFetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, clientId }),
+        body: JSON.stringify({ code }),
       });
       const data = await response.json();
 
@@ -319,6 +327,11 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        {authError && (
+          <div role="alert" className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+            {authError}
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-20">
             <Spinner className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-4" />
@@ -376,6 +389,12 @@ export default function Home() {
                     </button>
                   </div>
                   <div className="space-y-2.5 text-slate-600 text-sm">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="rounded-full bg-indigo-50 px-2 py-1 font-medium text-indigo-700">
+                        {exhibit.accessRole === "owner" ? "创建人" : "协作者"}
+                      </span>
+                      <span className="text-slate-400">{exhibit.collaboratorCount || 0} 位协作者</span>
+                    </div>
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-slate-400" />
                       <span>{exhibit.date}</span>
@@ -543,7 +562,7 @@ export default function Home() {
                 </h2>
                 {deleteTarget.accessRole !== "owner" && (
                   <p className="text-sm text-slate-500 mt-1">
-                    只会从当前设备移除，不会删除分享者的源 list。
+                    只会移除你的协作者成员关系，不会删除创建人的源 list。
                   </p>
                 )}
               </div>
@@ -555,7 +574,7 @@ export default function Home() {
                 className="ui-btn-danger flex-1"
               >
                 {deleting && <Spinner className="w-4 h-4 animate-spin" />}
-                {deleting ? "删除中..." : "删除"}
+                {deleting ? "处理中..." : deleteTarget.accessRole === "owner" ? "删除整份list" : "退出协作"}
               </button>
               <button
                 onClick={() => setDeleteTarget(null)}

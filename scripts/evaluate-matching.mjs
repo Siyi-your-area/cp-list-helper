@@ -16,6 +16,7 @@ const { values } = parseArgs({
       default: "public/cpp/cp32/items.json",
     },
     endpoint: { type: "string" },
+    token: { type: "string" },
     event: { type: "string", default: "cp32" },
     iterations: { type: "string", default: "5" },
     output: {
@@ -131,6 +132,8 @@ async function evaluateOffline() {
 }
 
 async function evaluateEndpoint() {
+  const token = values.token || process.env.MATCH_API_TOKEN;
+  if (!token) throw new Error("Endpoint 模式需要 --token 或 MATCH_API_TOKEN，且 --event 必须是该 JWT 已加入的测试 list");
   const latencies = [];
   let results = [];
   let lastTimings = {};
@@ -139,7 +142,7 @@ async function evaluateEndpoint() {
     const startedAt = performance.now();
     const response = await fetch(values.endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         eventId: values.event,
         items: dataset.map((entry) => entry.input),

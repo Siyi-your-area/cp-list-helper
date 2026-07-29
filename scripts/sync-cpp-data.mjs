@@ -82,12 +82,9 @@ loadEnvFile(path.join(process.cwd(), ".env.local"));
 loadEnvFile(path.join(process.cwd(), ".dev.vars"));
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!supabaseUrl || !supabaseKey) {
-  console.error("缺少 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY（或兼容的 NEXT_PUBLIC 变量）");
+  console.error("正式同步必须提供 SUPABASE_URL（或 NEXT_PUBLIC_SUPABASE_URL）和 SUPABASE_SERVICE_ROLE_KEY；不再允许 anon key 写入");
   process.exit(2);
 }
 

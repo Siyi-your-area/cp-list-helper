@@ -26,6 +26,15 @@
           "service": "cp-list-helper-preview"
         }
       ]
+    },
+    "staging": {
+      "name": "cp-list-helper-staging",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "cp-list-helper-staging"
+        }
+      ]
     }
   }
 }

@@ -14,6 +14,7 @@ const { values } = parseArgs({
       type: "string",
       default: "http://localhost:3000/api/cpp/match",
     },
+    token: { type: "string" },
     event: { type: "string", default: "cp32" },
     iterations: { type: "string", default: "20" },
     output: {
@@ -79,6 +80,8 @@ if (values.sampleSize) {
   buffer = readFileSync(path.resolve(values.file));
 }
 const iterations = Math.max(1, Number(values.iterations));
+const token = values.token || process.env.MATCH_API_TOKEN;
+if (!token) throw new Error("API benchmark 需要 --token 或 MATCH_API_TOKEN，且 --event 必须是该 JWT 已加入的测试 list");
 const samples = [];
 let lastResponse = {};
 
@@ -91,7 +94,7 @@ for (let iteration = 0; iteration < iterations; iteration += 1) {
   const requestStartedAt = performance.now();
   const response = await fetch(values.endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       eventId: values.event,
       items,

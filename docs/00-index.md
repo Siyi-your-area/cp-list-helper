@@ -18,6 +18,9 @@
 | 8 | [匹配现状与指标](08-matching-current-state.md) | 两阶段匹配、置信度、P95 和质量基线 | 匹配维护、性能与准确率评审 |
 | 9 | [CPP 数据与匹配产品说明](09-product-cpp-data-matching-guide.md) | 产品流程、验收方法和四张核心表交互图 | 产品评审与人工验收 |
 | 10 | [UI 设计规范](10-ui-design-system.md) | 字体、色彩、按钮、图标、状态及弹窗规范 | 页面设计与组件实现 |
+| 11 | [安全权限与实时同步上线手册](11-security-realtime-rollout.md) | 匿名 Auth、RLS、分享限流、Realtime、部署与回滚 | 安全迁移与发布验收 |
+| 12 | [生产安全切换前只读快照](sql/production-cutover-preflight.sql) | 全表结构、旧业务数量、CP32/CPG 分组与内容指纹 | 生产迁移前保存基线 |
+| 13 | [生产安全切换后只读验收](sql/production-cutover-postflight.sql) | 安全门禁、结构与 CP32/CPG 数据前后比对 | 生产迁移后恢复写入前验收 |
 
 ---
 

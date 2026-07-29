@@ -17,6 +17,7 @@
     "evaluate:matching": "node scripts/evaluate-matching.mjs",
     "benchmark:matching": "node scripts/benchmark-wishlist.mjs",
     "test:cpp-external": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/cpp-external.test.mjs",
+    "test:security": "node --test tests/security-contract.test.mjs",
     "verify:cpp-external": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify-cpp-external.mjs"
   },
   "dependencies": {

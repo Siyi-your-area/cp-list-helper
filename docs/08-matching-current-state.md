@@ -273,9 +273,12 @@ npm run evaluate:matching
 ```bash
 npm run evaluate:matching -- \
   --endpoint=http://localhost:3000/api/cpp/match \
-  --event=cp32 \
+  --event=<隔离环境中当前JWT已加入的list-id> \
+  --token=<匿名Auth测试JWT> \
   --iterations=20
 ```
+
+完整 API 已要求 Bearer JWT，并在解析 CPP 查询范围前验证该用户是 list 成员。也可用 `MATCH_API_TOKEN` 环境变量传入隔离测试 JWT；不得使用 Service Role Key 代替成员权限测试。
 
 指标定义：
 

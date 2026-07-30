@@ -10,6 +10,16 @@
 
 当前测试以**手动测试 + Puppeteer E2E 自动化测试**为主，无单元测试框架。
 
+仓库同时使用 Node 内置测试运行器维护安全、外部 CPP 与轻量指标静态契约：
+
+```bash
+npm run test:security
+npm run test:analytics
+npm run test:cpp-external
+```
+
+`test:analytics` 检查最小数据字段、禁采字段、RLS/ACL、RPC 幂等与限流、owner 触发器、API 请求边界、全局 tracker、隐私披露和只读报表口径。数据库验证必须依次应用 012、013 后再启动应用；012 单独缺少 Supabase `extensions` schema 的 pgcrypto 解析修复。静态契约通过不代表数据库迁移或线上采集已经验证。
+
 ---
 
 ## 二、自动化测试（`scripts/qa-test.mjs`）
@@ -97,6 +107,18 @@ node scripts/qa-test.mjs
 - [ ] 表格横向滚动
 - [ ] 按钮触摸友好
 - [ ] 搜索/筛选 UI 正常
+
+### 3.7 轻量产品指标
+
+- [ ] 按 012 → 013 → 应用顺序验证，两个指标函数的有效 `search_path` 均为 `public, extensions, pg_temp`
+- [ ] 未登录请求 `/api/analytics/page-view` 返回 401
+- [ ] 非 JSON Content-Type、非法 JSON、额外字段和非法 UUID 返回 400，超过 256B 返回 413
+- [ ] 合法请求返回 204 且不因数据库写入失败阻塞页面
+- [ ] 同一 `viewId` 重试不重复计数，同一匿名身份每分钟最多接受 30 次 PV
+- [ ] editor membership 不计创建，owner membership 仅计一次；指标失败不回滚 list 创建
+- [ ] 浏览器角色不能直接读取或写入 `product_metric_events`，只能由 Service Role 调用页面访问 RPC
+- [ ] tracker 请求体只有 `viewId`，不含 pathname、查询参数或其他页面内容
+- [ ] [只读指标报告](sql/analytics-report.sql) 的日报和区间总计均使用 Asia/Shanghai，区间 UV 不能累加日报 UV
 
 ---
 

@@ -138,6 +138,7 @@ npm run cf-typegen
 
 ```bash
 npm run test:security
+npm run test:analytics
 npx tsc --noEmit --incremental false
 npm run build
 npm run preview
@@ -164,6 +165,29 @@ npm run preview
 6. 只有前后结果一致且产品冒烟通过，才恢复应用写入和 CPP 同步。
 
 本轮允许旧 list 因没有 `list_members` 而不再可见，但不允许删除其 `events`、`event_access`、`wish_items` 行，不允许为保留目录事件伪造 owner，也不允许修改或清空任何 CP32/CPG `cpp_items` 数据。
+
+### 轻量产品指标上线与维护
+
+1. 先执行 `012_lightweight_product_metrics.sql`，确认迁移事务成功。
+2. 紧接着执行 `013_fix_product_metric_pgcrypto_search_path.sql`，确认两个指标函数的 `search_path` 均为 `public, extensions, pg_temp`。012 单独不足以在 Supabase 的 `extensions` schema 中解析 pgcrypto，不得在 013 前部署 tracker。
+3. 只有 012、013 都成功后，才部署包含 tracker 的应用。
+4. 在隔离环境验证 `product_metric_events` 已启用 RLS 且没有 policy，PUBLIC、anon、authenticated、service_role 均无直接表权限。
+5. 验证 `record_page_view(uuid,uuid)` 只有 service_role 可执行；重复 view ID 幂等，单匿名身份每分钟第 31 次返回 false。
+6. 验证 owner membership 产生一次 `list_created`，editor 不产生；故意制造指标写入失败时，list 创建事务仍成功。
+7. 部署后使用 [轻量产品指标只读报告](sql/analytics-report.sql) 检查最近 30 天日报与区间总计。012/013 不回填历史，匿名 UV 是匿名身份去重数，不等同于自然人数。
+
+指标只保留 90 天。由维护人员定期在 SQL Editor 人工运行以下清理语句；执行前先确认目标环境和时间范围，不把生产库作为测试库：
+
+```sql
+begin;
+delete from public.product_metric_events
+where occurred_at < now() - interval '90 days';
+commit;
+```
+
+清理后重新运行只读报告，并记录清理时间和删除行数。应用不会自动执行保留期清理。
+
+012、013 是连续的前向迁移：任一迁移事务内失败都会各自整体回滚；012 已提交而 013 失败时，保持应用未部署，修复后重跑 013。若两者已提交但应用部署失败，可回滚应用版本并保留这些新增对象，不执行破坏性 down。012/013 不回填历史；需要改变或停用指标时使用另一个经审查的前向迁移。
 
 ---
 

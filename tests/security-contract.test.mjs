@@ -9,6 +9,8 @@ const serviceRoleFixMigration = read("docs/migrations/008_redeem_share_service_r
 const casConflictFixMigration = read("docs/migrations/009_cas_conflict_sqlstate.sql");
 const leastPrivilegeMigration = read("docs/migrations/010_service_role_least_privilege.sql");
 const serviceRpcAclFixMigration = read("docs/migrations/011_service_rpc_execute_acl.sql");
+const analyticsMigration = read("docs/migrations/012_lightweight_product_metrics.sql");
+const analyticsPgcryptoFixMigration = read("docs/migrations/013_fix_product_metric_pgcrypto_search_path.sql");
 const migration = `${prepareMigration}\n${serviceRoleFixMigration}\n${casConflictFixMigration}\n${leastPrivilegeMigration}\n${serviceRpcAclFixMigration}\n${cutoverMigration}`;
 const productionPreflight = read("docs/sql/production-cutover-preflight.sql");
 const productionPostflight = read("docs/sql/production-cutover-postflight.sql");
@@ -134,6 +136,49 @@ test("011 makes all four exact service RPC signatures service-role-only", () => 
   }
 });
 
+test("012 keeps metric storage closed and page-view recording service-only", () => {
+  assert.match(
+    analyticsMigration,
+    /alter table public\.product_metric_events enable row level security/i,
+  );
+  assert.match(
+    analyticsMigration,
+    /revoke all privileges on table public\.product_metric_events\s+from public, anon, authenticated, service_role/i,
+  );
+  assert.doesNotMatch(analyticsMigration, /create policy[\s\S]*product_metric_events/i);
+  assert.match(
+    analyticsMigration,
+    /create or replace function public\.record_page_view\([\s\S]*security definer[\s\S]*set search_path = public, pg_temp/i,
+  );
+  assert.match(
+    analyticsMigration,
+    /revoke all privileges on function public\.record_page_view\(uuid,uuid\)\s+from public, anon, authenticated, service_role/i,
+  );
+  assert.match(
+    analyticsMigration,
+    /grant execute on function public\.record_page_view\(uuid,uuid\) to service_role/i,
+  );
+  assert.match(
+    analyticsMigration,
+    /revoke all privileges on function public\.record_list_created_metric\(\)\s+from public, anon, authenticated, service_role/i,
+  );
+});
+
+test("013 exposes trusted pgcrypto without changing metric function logic or ACLs", () => {
+  assert.match(
+    analyticsPgcryptoFixMigration,
+    /alter function public\.record_page_view\(uuid,uuid\)\s+set search_path = public, extensions, pg_temp/i,
+  );
+  assert.match(
+    analyticsPgcryptoFixMigration,
+    /alter function public\.record_list_created_metric\(\)\s+set search_path = public, extensions, pg_temp/i,
+  );
+  assert.doesNotMatch(
+    analyticsPgcryptoFixMigration,
+    /create or replace function|security invoker|grant|revoke/i,
+  );
+});
+
 test("006 is compatibility prepare and 007 performs enforcement", () => {
   for (const table of ["events", "wish_items", "event_access", "cpp_items"]) {
     assert.doesNotMatch(prepareMigration, new RegExp(`alter table public\\.${table} enable row level security`, "i"));
@@ -143,7 +188,7 @@ test("006 is compatibility prepare and 007 performs enforcement", () => {
   assert.match(cutoverMigration, /revoke all on public\.events/i);
 });
 
-test("006-011 never mutate CPP rows or remove existing tables and columns", () => {
+test("006-013 never mutate CPP rows or remove existing tables and columns", () => {
   for (const sql of [
     prepareMigration,
     cutoverMigration,
@@ -151,6 +196,8 @@ test("006-011 never mutate CPP rows or remove existing tables and columns", () =
     casConflictFixMigration,
     leastPrivilegeMigration,
     serviceRpcAclFixMigration,
+    analyticsMigration,
+    analyticsPgcryptoFixMigration,
   ]) {
     assert.doesNotMatch(sql, /\b(?:insert\s+into|update|delete\s+from)\s+(?:public\.)?cpp_items\b/i);
     assert.doesNotMatch(sql, /\btruncate\b/i);
@@ -331,6 +378,7 @@ test("server APIs authenticate JWTs and sync cannot fall back to anon writes", (
     "app/api/share/route.ts",
     "app/api/cpp/match/route.ts",
     "app/api/auth/claim/route.ts",
+    "app/api/analytics/page-view/route.ts",
   ]) {
     assert.match(read(route), /authenticateRequest\(request\)/, route);
   }

@@ -21,6 +21,8 @@
 | 11 | [安全权限与实时同步上线手册](11-security-realtime-rollout.md) | 匿名 Auth、RLS、分享限流、Realtime、部署与回滚 | 安全迁移与发布验收 |
 | 12 | [生产安全切换前只读快照](sql/production-cutover-preflight.sql) | 全表结构、旧业务数量、CP32/CPG 分组与内容指纹 | 生产迁移前保存基线 |
 | 13 | [生产安全切换后只读验收](sql/production-cutover-postflight.sql) | 安全门禁、结构与 CP32/CPG 数据前后比对 | 生产迁移后恢复写入前验收 |
+| 14 | [轻量产品指标只读报告](sql/analytics-report.sql) | 最近 30 天 PV、匿名身份 UV 与成功创建 list 数 | 产品使用情况复盘 |
+| 15 | [轻量指标迁移 012](migrations/012_lightweight_product_metrics.sql) → [pgcrypto 前滚修复 013](migrations/013_fix_product_metric_pgcrypto_search_path.sql) | 必须依次执行 012、013，再部署应用 | 轻量指标上线与故障恢复 |
 
 ---
 

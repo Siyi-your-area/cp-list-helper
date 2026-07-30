@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowSquareOut,
+  ChartLineUp,
   Database,
   Gavel,
   Handshake,
@@ -34,6 +35,12 @@ const statements = [
     icon: ShieldWarning,
     content:
       "数据可能因同步延迟、原页面变更、录入遗漏或自动匹配而出现偏差。购入价格、摊位安排、库存及活动规则应以权利人发布的信息和展会现场为准。用户应自行判断并承担使用结果；在法律允许范围内，开发者不对因信息偏差或服务中断造成的间接损失承担责任。",
+  },
+  {
+    title: "访问统计与隐私",
+    icon: ChartLineUp,
+    content:
+      "为了解基本使用情况，本工具记录页面访问量（PV）、基于匿名登录身份不可逆摘要统计的匿名身份访问量（UV），以及成功创建list的次数，指标保留90天。不保存IP、list识别码或内容、上传文件名、搜索和编辑输入。匿名身份UV用于去重统计，不等同于自然人数，也不表示完全匿名。",
   },
   {
     title: "更正、隐藏与删除",

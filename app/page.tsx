@@ -75,7 +75,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportMode, setIsImportMode] = useState(false);
-  const [selectedExhibit, setSelectedExhibit] = useState("");
+  const [selectedExhibit, setSelectedExhibit] = useState("cpg08");
   const [listName, setListName] = useState("");
   const [createUploadFile, setCreateUploadFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
@@ -133,6 +133,7 @@ export default function Home() {
 
   const openCreateModal = (importMode = false) => {
     setIsImportMode(importMode);
+    setSelectedExhibit("cpg08");
     setCreateStage("");
     setCreateElapsedSeconds(0);
     setIsModalOpen(true);
@@ -141,7 +142,7 @@ export default function Home() {
   const closeCreateModal = () => {
     setIsModalOpen(false);
     setIsImportMode(false);
-    setSelectedExhibit("");
+    setSelectedExhibit("cpg08");
     setListName("");
     setCreateUploadFile(null);
     setCreateStage("");
@@ -490,7 +491,7 @@ export default function Home() {
                   value={listName}
                   onChange={(e) => setListName(e.target.value.slice(0, 50))}
                   maxLength={50}
-                  placeholder="例如：熊的CP32大买一场"
+                  placeholder="例如：熊的cpg list"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
                 />
                 <div className="mt-1 text-right text-xs text-slate-400">{listName.length}/50</div>

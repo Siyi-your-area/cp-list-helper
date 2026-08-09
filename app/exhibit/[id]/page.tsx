@@ -24,6 +24,7 @@ import {
   Copy,
   CheckCircle,
   Info,
+  ArrowsClockwise,
 } from "@phosphor-icons/react";
 import type { WishItem, MatchResult, MatchInput } from "@/lib/types";
 import { STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
@@ -37,6 +38,12 @@ import {
   getVisibleWishNote,
   parseReviewNote,
 } from "@/lib/match-review";
+import { detectWishItemType, resolveImportedAuthor } from "@/lib/cpp-item-mapping";
+import { matchCPPItemsInBatches } from "@/lib/cpp-match-client";
+import {
+  getLatestCPPDataTimestamp,
+  syncWishItemsFromLatestCPP,
+} from "@/lib/db-service";
 
 const PAGE_SIZE = 100;
 
@@ -62,26 +69,12 @@ function getStatusColor(status: string): string {
 /**
  * 从 CPP 匹配结果推断有料/无料
  * 优先级：
- * 1. tags 包含 "无料" → free
- * 2. 商品名包含 "无料" → free
- * 3. tags 包含 "有偿" → paid
- * 4. 默认 paid
+ * 1. exchangeType
+ * 2. tags 与商品名
+ * 3. 默认 paid
  */
 function detectTypeFromCPP(result: MatchResult | undefined): "paid" | "free" {
-  if (!result?.cppItem) return "paid";
-
-  // 优先用交换状态判断（最准确）
-  const exchangeType = result.cppItem.exchangeType || "";
-  if (exchangeType.includes("无料")) return "free";
-  if (exchangeType.includes("有偿")) return "paid";
-
-  // 其次用标签判断
-  const tags = result.cppItem.tags || [];
-  if (tags.some((t) => t.includes("无料"))) return "free";
-  // 商品名中也检查
-  if (result.cppItem.productName.includes("无料")) return "free";
-  if (tags.some((t) => t.includes("有偿"))) return "paid";
-  return "paid";
+  return detectWishItemType(result?.cppItem);
 }
 
 async function imageUrlToExcelImage(
@@ -152,6 +145,7 @@ export default function ExhibitDetail() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isMatching, setIsMatching] = useState(false);
+  const [matchProgress, setMatchProgress] = useState("");
   const [matchStats, setMatchStats] = useState<any>(null);
   const [uploadingItems, setUploadingItems] = useState(false);
   const [desktopSortMode, setDesktopSortMode] = useState<"default" | "hot" | "priority">("default");
@@ -165,6 +159,9 @@ export default function ExhibitDetail() {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const dirtyItemIdsRef = useRef<Set<string>>(new Set());
   const [savingEdits, setSavingEdits] = useState(false);
+  const [latestCPPDataAt, setLatestCPPDataAt] = useState<string | null>(null);
+  const [syncingCPPData, setSyncingCPPData] = useState(false);
+  const [cppSyncMessage, setCppSyncMessage] = useState("");
 
   // ---- 分享码 ----
   const [shareCode, setShareCode] = useState("");
@@ -182,6 +179,46 @@ export default function ExhibitDetail() {
       })
       .catch(() => {}); // 静默失败
   }, [eventId, membership]);
+
+  useEffect(() => {
+    if (!eventInfo?.cppEventId) return;
+    let cancelled = false;
+    void getLatestCPPDataTimestamp(eventInfo.cppEventId)
+      .then((timestamp) => {
+        if (!cancelled) setLatestCPPDataAt(timestamp);
+      })
+      .catch(() => {
+        if (!cancelled) setLatestCPPDataAt(null);
+      });
+    return () => { cancelled = true; };
+  }, [eventInfo?.cppEventId]);
+
+  const cppSyncDateText = latestCPPDataAt
+    ? new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" })
+        .format(new Date(latestCPPDataAt))
+    : "最近一次可用数据";
+
+  const handleSyncCPPData = async () => {
+    if (editMode || syncingCPPData) return;
+    setSyncingCPPData(true);
+    setCppSyncMessage("");
+    try {
+      const result = await syncWishItemsFromLatestCPP(eventId);
+      if (result.syncedThrough) setLatestCPPDataAt(result.syncedThrough);
+      await refresh();
+      setCppSyncMessage(
+        result.matchedCount === 0 && items.length > 0
+          ? "当前 list 中没有可关联的 CPP 展品"
+          : result.updatedCount > 0
+          ? `已更新 ${result.updatedCount} 条展品的摊位号或热度`
+          : "当前 list 已是最新数据"
+      );
+    } catch (error) {
+      setCppSyncMessage(error instanceof Error ? error.message : "拉取 CPP 最新数据失败");
+    } finally {
+      setSyncingCPPData(false);
+    }
+  };
 
   const handleCopyShareCode = async () => {
     if (!shareCode) return;
@@ -363,22 +400,15 @@ export default function ExhibitDetail() {
 
     try {
       setResolvingReviews(true);
-      const response = await authFetch("/api/cpp/match", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          eventId,
-          items: targets.map(({ candidate }) => ({
+      const data = await matchCPPItemsInBatches({
+        eventId,
+        fetcher: authFetch,
+        items: targets.map(({ candidate }) => ({
             boothNumber: candidate.boothNumber,
             productName: candidate.productName,
             doujinshiId: candidate.doujinshiId,
-          })),
-        }),
+        })),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "读取候选详情失败");
-      }
 
       const drafts: WishItem[] = targets.map(({ item }, index) => {
         const result = data.results?.[index] as MatchResult | undefined;
@@ -394,7 +424,7 @@ export default function ExhibitDetail() {
         } as MatchResult);
         return {
           ...item,
-          author: item.author || cppItem.author || "",
+          author: cppItem.author || item.author || "",
           imageUrl: cppItem.imageUrl || item.imageUrl || "",
           type: confirmedType,
           status:
@@ -541,34 +571,21 @@ export default function ExhibitDetail() {
       // 3. 显示全局 Loading 并调用 API 匹配
       setUploadingItems(true);
       setIsMatching(true);
+      setMatchProgress(`已匹配 0/${newInputs.length}`);
       setMatchStats(null);
 
-      let results: MatchResult[] = [];
-      let responseStats: any = null;
-      let responseTimings: any = null;
-      try {
-        const requestStartedAt = performance.now();
-        const response = await authFetch("/api/cpp/match", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: newInputs,
-            eventId,
-            clientTimings: { parseMs, dedupeMs },
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "匹配请求失败");
-        results = data.results || [];
-        responseStats = data.stats || {};
-        responseTimings = {
-          ...(data.timings || {}),
-          requestMs: performance.now() - requestStartedAt,
-        };
-      } catch (err) {
-        console.warn("API 匹配失败，使用无匹配模式:", err);
-        results = newInputs.map(() => ({ matched: false, confidence: "none" as const, reason: "匹配服务不可用" }));
-      }
+      const matchResponse = await matchCPPItemsInBatches({
+        items: newInputs,
+        eventId,
+        fetcher: authFetch,
+        clientTimings: { parseMs, dedupeMs },
+        onProgress: (completed, total) => {
+          setMatchProgress(`已匹配 ${completed}/${total}`);
+        },
+      });
+      const results = matchResponse.results;
+      const responseStats = matchResponse.stats;
+      const responseTimings = matchResponse.timings;
       setIsMatching(false);
 
       // 4. 构建list条目并批量保存
@@ -578,7 +595,7 @@ export default function ExhibitDetail() {
         return {
           boothNumber: input.boothNumber,
           productName: input.productName,
-          author: input.author || result?.cppItem?.author || "",
+          author: resolveImportedAuthor(input, result?.cppItem),
           imageUrl: result?.cppItem?.imageUrl || "",
           venue: input.boothNumber.charAt(0) || "",
           type,
@@ -630,6 +647,7 @@ export default function ExhibitDetail() {
       });
     } catch (error) {
       setIsMatching(false);
+      setMatchProgress("");
       setUploadingItems(false);
       alert("Excel 解析失败: " + (error as Error).message);
       console.error(error);
@@ -919,6 +937,31 @@ export default function ExhibitDetail() {
           </div>
         </div>
       </header>
+
+      {eventInfo?.cppEventId && (
+        <div className="shrink-0 border-b border-slate-200 bg-white">
+          <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:px-6 lg:px-8">
+            <button
+              type="button"
+              onClick={() => void handleSyncCPPData()}
+              disabled={editMode || syncingCPPData}
+              title={editMode ? "请先保存并退出编辑模式" : "仅更新摊位号和制品热度"}
+              className="ui-btn-secondary flex min-h-11 shrink-0 items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <ArrowsClockwise className={`h-4 w-4 ${syncingCPPData ? "animate-spin" : ""}`} />
+              {syncingCPPData ? "拉取中..." : "拉取 CPP 最新数据"}
+            </button>
+            <div className="min-w-0 text-xs leading-5 text-slate-500">
+              <p>
+                仅更新摊位号和制品热度，非实时更新，
+                {latestCPPDataAt ? `本次同步将同步至 ${cppSyncDateText}。` : "正在读取可同步日期。"}
+              </p>
+              {editMode && <p className="text-amber-700">请先保存并退出编辑模式后再拉取。</p>}
+              {cppSyncMessage && <p className="font-medium text-slate-700">{cppSyncMessage}</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {conflicts.length > 0 && (
         <div role="alert" className="mx-auto mt-3 flex w-[calc(100%-1.5rem)] max-w-7xl flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
@@ -1456,7 +1499,7 @@ export default function ExhibitDetail() {
                           <p className="mb-1 text-xs font-medium text-indigo-600">CPP 候选</p>
                           <p className="text-sm font-semibold text-slate-900">{candidate.productName}</p>
                           <p className="mt-1 text-xs text-slate-600">
-                            {candidate.boothNumber}
+                            {candidate.boothNumber || "摊位待公布"}
                             {candidate.doujinshiId ? ` · CPP ${candidate.doujinshiId}` : ""}
                           </p>
                         </div>
@@ -1528,6 +1571,7 @@ export default function ExhibitDetail() {
               <div className="text-center py-8">
                 <div className="animate-spin w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full mx-auto mb-4" />
                 <p className="text-slate-600 font-medium">正在匹配展品信息</p>
+                <p className="mt-1 text-sm font-medium text-indigo-600">{matchProgress}</p>
                 <p className="text-slate-400 text-sm mt-1">可能需要30s以上，请耐心等待</p>
               </div>
             ) : (

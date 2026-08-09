@@ -23,6 +23,11 @@
 | 13 | [生产安全切换后只读验收](sql/production-cutover-postflight.sql) | 安全门禁、结构与 CP32/CPG 数据前后比对 | 生产迁移后恢复写入前验收 |
 | 14 | [轻量产品指标只读报告](sql/analytics-report.sql) | 最近 30 天 PV、匿名身份 UV 与成功创建 list 数 | 产品使用情况复盘 |
 | 15 | [轻量指标迁移 012](migrations/012_lightweight_product_metrics.sql) → [pgcrypto 前滚修复 013](migrations/013_fix_product_metric_pgcrypto_search_path.sql) | 必须依次执行 012、013，再部署应用 | 轻量指标上线与故障恢复 |
+| 16 | [CPG 单期 16 类目数据同步策略](12-cpg-sync-strategy.md) | 单期全量快照、每日增量、完整性和匹配发布门禁 | CPG 数据开放前实施与上线验收 |
+| 17 | [CPG08 同步开发复盘](13-cpg-development-retrospective.md) | 已实现能力、经验教训、未完成项与下一步 | 开发复盘与范围审计 |
+| 18 | [CPG08 下一会话 compact 交接](14-cpg-next-session-handoff.md) | 当前契约、复跑命令与决策点 | 下一会话快速续接 |
+| 19 | [数据库容量估算](15-database-capacity-estimate.md) | 2026-08-04 快照、容量公式与复跑 SQL | Free plan 规划与运营警戒 |
+| 20 | [list 拉取最新 CPP 数据迁移](migrations/014_sync_wish_items_from_cpp.sql) | 仅同步摊位号与热度，空摊位不覆盖原值 | 旧 list 主动刷新最新 CPP 数据 |
 
 ---
 

@@ -17,7 +17,7 @@ import {
   Warning,
   UploadSimple,
 } from "@phosphor-icons/react";
-import type { Exhibit, MatchResult, WishItem } from "@/lib/types";
+import type { Exhibit, WishItem } from "@/lib/types";
 import {
   getExhibitsAsync,
   createWishItemsAsync,
@@ -26,6 +26,8 @@ import { getClientId } from "@/lib/client-id";
 import { authFetch, claimLegacyAccess, ensureAnonymousSession } from "@/lib/auth-client";
 import { parseExcelFile } from "@/lib/excel-parser";
 import { buildReviewNote } from "@/lib/match-review";
+import { detectWishItemType, resolveImportedAuthor } from "@/lib/cpp-item-mapping";
+import { matchCPPItemsInBatches } from "@/lib/cpp-match-client";
 import { BearLogo } from "@/components/BearLogo";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
 
@@ -63,7 +65,7 @@ const EXHIBIT_PRESETS: {
     id: "cpg08",
     label: "CPG08",
     cppEventId: "cpg08",
-    days: [{ id: "7073", name: "8.22-8.23" }],
+    days: [{ id: "7829", name: "8.22-8.23" }],
   },
 ];
 
@@ -77,6 +79,8 @@ export default function Home() {
   const [listName, setListName] = useState("");
   const [createUploadFile, setCreateUploadFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
+  const [createStage, setCreateStage] = useState("");
+  const [createElapsedSeconds, setCreateElapsedSeconds] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<Exhibit | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -100,6 +104,19 @@ export default function Home() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!creating) {
+      setCreateElapsedSeconds(0);
+      return;
+    }
+
+    setCreateElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setCreateElapsedSeconds((seconds) => seconds + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [creating]);
+
   async function loadExhibits() {
     try {
       setLoading(true);
@@ -116,6 +133,8 @@ export default function Home() {
 
   const openCreateModal = (importMode = false) => {
     setIsImportMode(importMode);
+    setCreateStage("");
+    setCreateElapsedSeconds(0);
     setIsModalOpen(true);
   };
 
@@ -125,6 +144,7 @@ export default function Home() {
     setSelectedExhibit("");
     setListName("");
     setCreateUploadFile(null);
+    setCreateStage("");
   };
 
   const handleCreate = async () => {
@@ -148,12 +168,14 @@ export default function Home() {
 
     try {
       setCreating(true);
+      setCreateStage(createUploadFile ? "正在读取并检查上传文件" : "正在准备创建 list");
       const uploadInputs = createUploadFile ? await parseExcelFile(createUploadFile) : [];
       if (createUploadFile && uploadInputs.length === 0) {
         throw new Error("上传文件中没有找到 CPP 心愿单数据，请检查文件格式");
       }
 
       const listId = `${preset.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      setCreateStage("正在创建 list");
       const createResponse = await authFetch("/api/exhibits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,38 +194,31 @@ export default function Home() {
       let importError: Error | null = null;
       if (uploadInputs.length > 0) {
         try {
-        let results: MatchResult[] = [];
-        try {
-          const response = await authFetch("/api/cpp/match", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items: uploadInputs, eventId: listId }),
+          setCreateStage(`正在匹配 CPP 制品：已匹配 0/${uploadInputs.length}`);
+          const { results } = await matchCPPItemsInBatches({
+            items: uploadInputs,
+            eventId: listId,
+            fetcher: authFetch,
+            onProgress: (completed, total) => {
+              setCreateStage(`正在匹配 CPP 制品：已匹配 ${completed}/${total}`);
+            },
           });
-          if (response.ok) {
-            const data = await response.json();
-            results = data.results || [];
-          }
-        } catch (error) {
-          console.warn("创建时自动匹配失败，将保留原始上传内容:", error);
-        }
 
+        setCreateStage("正在整理匹配结果");
         const importedItems: Omit<WishItem, "id">[] = [];
         for (let index = 0; index < uploadInputs.length; index += 1) {
           const input = uploadInputs[index];
           const result = results[index];
           const cppItem = result?.cppItem;
-          const isFree =
-            cppItem?.exchangeType?.includes("无料") ||
-            cppItem?.tags?.some((tag) => tag.includes("无料")) ||
-            cppItem?.productName?.includes("无料");
+          const itemType = detectWishItemType(cppItem);
           const item: Omit<WishItem, "id"> = {
             boothNumber: input.boothNumber,
             productName: input.productName,
-            author: input.author || cppItem?.author || "",
+            author: resolveImportedAuthor(input, cppItem),
             imageUrl: cppItem?.imageUrl || "",
             venue: input.boothNumber.charAt(0) || "",
-            type: isFree ? "free" : "paid",
-            status: isFree ? "待领取" : "pending",
+            type: itemType,
+            status: itemType === "free" ? "待领取" : "pending",
             hotCount: cppItem?.hotCount || 0,
             description: cppItem?.description || "",
             matchedCPPItem: cppItem,
@@ -216,6 +231,7 @@ export default function Home() {
           };
           importedItems.push(item);
         }
+        setCreateStage("正在保存导入条目");
         await createWishItemsAsync(listId, importedItems);
         } catch (error) {
           importError = new Error(getErrorMessage(error, "导入 CPP 心愿单失败"));
@@ -223,15 +239,20 @@ export default function Home() {
         }
       }
 
-      closeCreateModal();
-      await loadExhibits();
       if (importError) {
+        closeCreateModal();
+        await loadExhibits();
         alert(`list已创建，但 CPP 心愿单导入失败：${importError.message}`);
+      } else {
+        setCreateStage("正在打开 list 详情");
+        router.push(`/exhibit/${listId}`);
+        closeCreateModal();
       }
     } catch (error: any) {
       alert("创建失败: " + error.message);
     } finally {
       setCreating(false);
+      setCreateStage("");
     }
   };
 
@@ -452,7 +473,9 @@ export default function Home() {
               </h2>
               <button
                 onClick={closeCreateModal}
-                className="text-slate-400 hover:text-slate-600 transition-colors"
+                disabled={creating}
+                aria-label="关闭创建窗口"
+                className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -463,6 +486,7 @@ export default function Home() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">list名称</label>
                 <input
                   type="text"
+                  disabled={creating}
                   value={listName}
                   onChange={(e) => setListName(e.target.value.slice(0, 50))}
                   maxLength={50}
@@ -475,6 +499,7 @@ export default function Home() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">选择展会</label>
                 <div className="relative">
                   <select
+                    disabled={creating}
                     value={selectedExhibit}
                     onChange={(e) => setSelectedExhibit(e.target.value)}
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm appearance-none bg-white cursor-pointer"
@@ -512,6 +537,7 @@ export default function Home() {
                   <span className="truncate">{createUploadFile?.name || "选择 Excel 或 CSV 文件"}</span>
                   <input
                     type="file"
+                    disabled={creating}
                     accept=".xlsx,.xls,.csv"
                     className="hidden"
                     onChange={(event) => setCreateUploadFile(event.target.files?.[0] || null)}
@@ -520,6 +546,34 @@ export default function Home() {
                 <p className="mt-1 text-xs text-slate-400">创建后会自动导入并匹配展品信息</p>
               </div>
             </div>
+
+            {creating && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mt-5 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3.5 text-sm text-slate-700"
+              >
+                <div className="flex items-center gap-2 font-medium text-slate-800">
+                  <Spinner className="h-4 w-4 shrink-0 text-indigo-600 motion-safe:animate-spin" />
+                  <span className="min-w-0 flex-1">{createStage || "正在处理"}</span>
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 tabular-nums text-xs text-slate-500"
+                  >
+                    已等待 {createElapsedSeconds} 秒
+                  </span>
+                </div>
+                <div
+                  className="mt-3 h-1.5 overflow-hidden rounded-full bg-indigo-100"
+                  aria-hidden="true"
+                >
+                  <div className="h-full w-full rounded-full bg-indigo-500/70 motion-safe:animate-pulse" />
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-600">
+                  匹配通常需要1分钟以上，请耐心等待，请勿关闭页面
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-3 mt-6">
               <button
@@ -537,6 +591,7 @@ export default function Home() {
               </button>
               <button
                 onClick={closeCreateModal}
+                disabled={creating}
                 className="ui-btn-secondary flex-1"
               >
                 取消

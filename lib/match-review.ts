@@ -1,6 +1,7 @@
 import type { NormalizedCPPItem } from "./types";
 
 const REVIEW_PREFIX = "待确认候选：";
+const PENDING_BOOTH_LABEL = "摊位待公布";
 const CANDIDATE_MARKER = /\s*\[\[CPP:(\d+)\]\]\s*$/;
 
 export interface ReviewCandidateReference {
@@ -13,7 +14,8 @@ export function buildReviewNote(candidate: NormalizedCPPItem): string {
   const marker = candidate.doujinshiId
     ? ` [[CPP:${candidate.doujinshiId}]]`
     : "";
-  return `${REVIEW_PREFIX}${candidate.boothNumber} · ${candidate.productName}${marker}`;
+  const boothLabel = candidate.boothNumber || PENDING_BOOTH_LABEL;
+  return `${REVIEW_PREFIX}${boothLabel} · ${candidate.productName}${marker}`;
 }
 
 export function parseReviewNote(note?: string): ReviewCandidateReference | null {
@@ -25,9 +27,10 @@ export function parseReviewNote(note?: string): ReviewCandidateReference | null 
   const separatorIndex = content.indexOf(" · ");
   if (separatorIndex < 0) return null;
 
-  const boothNumber = content.slice(0, separatorIndex).trim();
+  const boothLabel = content.slice(0, separatorIndex).trim();
+  const boothNumber = boothLabel === PENDING_BOOTH_LABEL ? "" : boothLabel;
   const productName = content.slice(separatorIndex + 3).trim();
-  if (!boothNumber || !productName) return null;
+  if (!productName || (!boothNumber && !marker)) return null;
 
   return {
     boothNumber,
@@ -37,5 +40,12 @@ export function parseReviewNote(note?: string): ReviewCandidateReference | null 
 }
 
 export function getVisibleWishNote(note?: string): string {
-  return note?.replace(CANDIDATE_MARKER, "").trim() || "";
+  const visible = note?.replace(CANDIDATE_MARKER, "").trim() || "";
+  if (!visible.startsWith(REVIEW_PREFIX)) return visible;
+
+  const content = visible.slice(REVIEW_PREFIX.length);
+  if (content.startsWith(" · ")) {
+    return `${REVIEW_PREFIX}${PENDING_BOOTH_LABEL}${content}`;
+  }
+  return visible;
 }

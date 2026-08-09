@@ -9,6 +9,7 @@ import {
   matchCPPExternalCandidates,
   parseCPPDetailHTML,
 } from "../lib/cpp-external.ts";
+import { detectWishItemType } from "../lib/cpp-item-mapping.ts";
 
 function candidate(overrides = {}) {
   return {
@@ -224,4 +225,21 @@ test("详情字段只补充搜索结果中缺少的数据", () => {
   assert.equal(enriched.originalWork, "苏丹的游戏");
   assert.equal(enriched.exchangeType, "有偿交换");
   assert.equal(enriched.description, "详情");
+});
+
+test("详情页无料交换可被解析并识别为无料", () => {
+  const detail = parseCPPDetailHTML(`
+    <section class="djs-info">
+      <p>交换：无料交换</p>
+      <div class="djs-tab-box info textEllipsis">现场无料</div>
+    </section>
+  `);
+  const enriched = enrichCPPItemWithDetail(
+    candidate({ exchangeType: undefined }),
+    detail
+  );
+
+  assert.equal(detail.exchangeType, "无料交换");
+  assert.equal(enriched.exchangeType, "无料交换");
+  assert.equal(detectWishItemType(enriched), "free");
 });

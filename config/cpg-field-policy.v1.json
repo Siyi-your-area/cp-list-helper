@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "cpg08-fields-v1",
+  "eventId": "cpg08",
+  "fields": [
+    { "name": "event_id", "class": "identity", "source": "search", "updateMode": "immutable", "nullPolicy": "reject", "cadence": "snapshot", "hashGroup": "source" },
+    { "name": "day_id", "class": "identity", "source": "search", "updateMode": "immutable", "nullPolicy": "reject", "cadence": "snapshot", "hashGroup": "source" },
+    { "name": "doujinshi_id", "class": "identity", "source": "search", "updateMode": "immutable", "nullPolicy": "reject", "cadence": "snapshot", "hashGroup": "source" },
+    { "name": "type_id", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "type_name", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "product_name", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "author", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "booth_number", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "booth_name", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "image_url", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "tags", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "source_url", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "original_work", "class": "stable", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "hot_count", "class": "volatile", "source": "search", "updateMode": "replace", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" },
+    { "name": "exchange_type", "class": "detail", "source": "detail", "updateMode": "fillMissing", "nullPolicy": "preserveExisting", "cadence": "detail", "hashGroup": "none" },
+    { "name": "description", "class": "detail", "source": "detail", "updateMode": "fillMissing", "nullPolicy": "preserveExisting", "cadence": "detail", "hashGroup": "none" },
+    { "name": "normalized_booth", "class": "derived", "source": "derived", "updateMode": "recompute", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "none" },
+    { "name": "normalized_product", "class": "derived", "source": "derived", "updateMode": "recompute", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "none" },
+    { "name": "normalized_author", "class": "derived", "source": "derived", "updateMode": "recompute", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "none" },
+    { "name": "booth_aliases", "class": "derived", "source": "derived", "updateMode": "recompute", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "none" },
+    { "name": "product_aliases", "class": "derived", "source": "derived", "updateMode": "recompute", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "none" },
+    { "name": "source_hash", "class": "derived", "source": "derived", "updateMode": "recompute", "nullPolicy": "reject", "cadence": "daily", "hashGroup": "source" }
+  ]
+}

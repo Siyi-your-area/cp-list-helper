@@ -135,6 +135,40 @@ export async function hasEventAccess(eventId: string, _clientId?: string, client
   return Boolean(await getEventMembership(eventId, client));
 }
 
+export interface CPPListSyncResult {
+  updatedCount: number;
+  matchedCount: number;
+  syncedThrough: string | null;
+}
+
+export async function getLatestCPPDataTimestamp(cppEventId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("cpp_items")
+    .select("source_updated_at")
+    .eq("event_id", cppEventId)
+    .not("source_updated_at", "is", null)
+    .order("source_updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`读取 CPP 更新时间失败：${databaseErrorMessage(error)}`);
+  return data?.source_updated_at || null;
+}
+
+export async function syncWishItemsFromLatestCPP(eventId: string): Promise<CPPListSyncResult> {
+  const { data, error } = await supabase.rpc("sync_wish_items_from_cpp", {
+    p_event_id: eventId,
+  });
+  if (error) throw new Error(`拉取 CPP 最新数据失败：${databaseErrorMessage(error)}`);
+
+  const row = data?.[0];
+  return {
+    updatedCount: Number(row?.updated_count || 0),
+    matchedCount: Number(row?.matched_count || 0),
+    syncedThrough: row?.synced_through || null,
+  };
+}
+
 // ============================================================
 // 心愿单操作
 // ============================================================
@@ -441,10 +475,75 @@ export async function getCPPItemsByBooths(
 }
 
 /**
+ * 按完整 normalized_product 批量读取 CPG 空摊位候选。
+ * 调用方传入与同步脚本相同规则生成的标准化名称；查询始终受 event/day scope 限制。
+ */
+export async function getCPPItemsByNormalizedProducts(
+  eventId: string,
+  normalizedProducts: string[],
+  dayIds?: string[],
+  client: SupabaseClient = supabase
+): Promise<NormalizedCPPItem[]> {
+  const uniqueProducts = Array.from(new Set(
+    normalizedProducts.map((value) => value.trim().toLowerCase()).filter(Boolean)
+  ));
+  if (uniqueProducts.length === 0) return [];
+
+  const rows: any[] = [];
+  const chunkSize = 40;
+  for (let index = 0; index < uniqueProducts.length; index += chunkSize) {
+    const chunk = uniqueProducts.slice(index, index + chunkSize);
+    let query = client
+      .from("cpp_items")
+      .select("*")
+      .eq("event_id", eventId)
+      .in("normalized_product", chunk)
+      .limit(5000);
+
+    if (dayIds && dayIds.length > 0) {
+      query = query.in("day_id", dayIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+
+  const seen = new Set<string>();
+  return rows
+    .filter((row) => {
+      const key = `${row.event_id}|${row.day_id}|${row.doujinshi_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(dbRowToCPPItem);
+}
+
+/**
  * 将用户展会 ID 解析为 CPP 数据库查询范围。
  * 例如页面展会是 cp32-day1/cp32-day2，cpp_items.event_id 统一是 cp32，
  * 再用 day_id=7040/7042 区分一期和二期。
  */
+export function normalizeCPPMatchDayIds(
+  cppEventId: string,
+  days: unknown
+): string[] | undefined {
+  const dayIds = Array.isArray(days)
+    ? days.map((day: any) => String(day?.id ?? "")).filter(Boolean)
+    : undefined;
+
+  // 仅兼容真实 CPP day 被确认前创建的 CPG08 单日 list；不改写存储数据。
+  if (
+    cppEventId === "cpg08" &&
+    dayIds?.length === 1 &&
+    dayIds[0] === "7073"
+  ) {
+    return ["7829"];
+  }
+  return dayIds;
+}
+
 export async function resolveCPPMatchScope(
   eventId: string,
   client: SupabaseClient = supabase,
@@ -458,12 +557,12 @@ export async function resolveCPPMatchScope(
       .maybeSingle();
 
     if (!error && data) {
-      const dayIds = Array.isArray(data.days)
-        ? data.days.map((day: any) => String(day.id)).filter(Boolean)
-        : undefined;
+      const cppEventId =
+        data.cpp_event_id || (eventId.startsWith("cp32") ? "cp32" : eventId);
+      const dayIds = normalizeCPPMatchDayIds(cppEventId, data.days);
 
       return {
-        eventId: data.cpp_event_id || (eventId.startsWith("cp32") ? "cp32" : eventId),
+        eventId: cppEventId,
         dayIds,
       };
     }

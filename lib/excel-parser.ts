@@ -13,7 +13,8 @@ import type { MatchInput } from "./types";
 const COLUMN_ALIASES: Record<string, string[]> = {
   boothNumber: ["社团摊位号", "摊位号", "booth", "摊位"],
   productName: ["展品名称", "制品名称", "名称", "product", "展品"],
-  author: ["作者", "社团名", "author", "画师"],
+  author: ["作者", "author", "画师"],
+  circleName: ["社团名称", "社团名", "circle", "circleName"],
 };
 
 /**
@@ -29,6 +30,84 @@ function findColumn(headers: string[], aliases: string[]): number {
     }
   }
   return -1;
+}
+
+/**
+ * 解析已加载的工作表。独立于 FileReader，便于用真实 XLS/XLSX 二进制回归。
+ */
+export function parseExcelSheet(
+  sheet: XLSX.WorkSheet,
+  skipRows: number = 2
+): MatchInput[] {
+  const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    blankrows: false,
+  });
+
+  if (rawData.length < skipRows + 1) return [];
+
+  const headerRow = rawData[skipRows - 1] || [];
+  const boothCol = findColumn(headerRow, COLUMN_ALIASES.boothNumber);
+  const productCol = findColumn(headerRow, COLUMN_ALIASES.productName);
+  const authorCol = findColumn(headerRow, COLUMN_ALIASES.author);
+  const circleNameCol = findColumn(headerRow, COLUMN_ALIASES.circleName);
+
+  if (boothCol >= 0 && productCol >= 0) {
+    const items: MatchInput[] = [];
+    for (let index = skipRows; index < rawData.length; index += 1) {
+      const row = rawData[index];
+      if (!row || row.length === 0) continue;
+
+      const boothNumber = (row[boothCol] || "").toString().trim();
+      const productName = (row[productCol] || "").toString().trim();
+      const author = authorCol >= 0
+        ? (row[authorCol] || "").toString().trim()
+        : undefined;
+      const circleName = circleNameCol >= 0
+        ? (row[circleNameCol] || "").toString().trim()
+        : undefined;
+
+      if (boothNumber || productName) {
+        items.push({
+          boothNumber,
+          productName,
+          author: author || undefined,
+          circleName: circleName || undefined,
+        });
+      }
+    }
+    return items;
+  }
+
+  // CPP 的真实导出可能把列名放在第 3 行；range=2 会以该行为表头。
+  const jsonData = XLSX.utils.sheet_to_json(sheet, {
+    range: skipRows,
+  }) as Record<string, unknown>[];
+
+  return jsonData
+    .map((row) => {
+      const boothNumber = row["社团摊位号"] || row["摊位号"] || "";
+      const productName = row["展品名称"] || row["制品名称"] || "";
+      const author = row["作者"] || row["画师"] || row["author"] || undefined;
+      const circleName = row["社团名称"] || row["社团名"] || undefined;
+
+      return {
+        boothNumber: boothNumber.toString().trim(),
+        productName: productName.toString().trim(),
+        author: author?.toString().trim() || undefined,
+        circleName: circleName?.toString().trim() || undefined,
+      };
+    })
+    .filter((item) => item.boothNumber || item.productName);
+}
+
+export function parseExcelWorkbook(
+  workbook: XLSX.WorkBook,
+  skipRows: number = 2
+): MatchInput[] {
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) return [];
+  return parseExcelSheet(workbook.Sheets[firstSheetName], skipRows);
 }
 
 /**
@@ -48,72 +127,7 @@ export async function parseExcelFile(
       try {
         const data = e.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-        // 先读取原始数据用于定位列
-        const rawData: any[][] = XLSX.utils.sheet_to_json(sheet, {
-          header: 1,
-          blankrows: false,
-        });
-
-        if (rawData.length < skipRows + 1) {
-          resolve([]);
-          return;
-        }
-
-        // 从 header 行（最后一行被跳过的行）找列位置
-        const headerRow = rawData[skipRows - 1] || [];
-        const boothCol = findColumn(headerRow, COLUMN_ALIASES.boothNumber);
-        const productCol = findColumn(headerRow, COLUMN_ALIASES.productName);
-        const authorCol = findColumn(headerRow, COLUMN_ALIASES.author);
-
-        // 如果通过 header 找不到列，用 sheet_to_json 自动映射
-        let items: MatchInput[];
-
-        if (boothCol >= 0 && productCol >= 0) {
-          // 手动按列位置解析
-          items = [];
-          for (let i = skipRows; i < rawData.length; i++) {
-            const row = rawData[i];
-            if (!row || row.length === 0) continue;
-
-            const boothNumber = (row[boothCol] || "").toString().trim();
-            const productName = (row[productCol] || "").toString().trim();
-            const author = authorCol >= 0 ? (row[authorCol] || "").toString().trim() : undefined;
-
-            if (boothNumber || productName) {
-              items.push({
-                boothNumber,
-                productName,
-                author: author || undefined,
-              });
-            }
-          }
-        } else {
-          // 使用中文列名自动映射
-          const jsonData = XLSX.utils.sheet_to_json(sheet, {
-            range: skipRows,
-          }) as any[];
-
-          items = jsonData
-            .map((row) => {
-              const boothNumber =
-                row["社团摊位号"] || row["摊位号"] || "";
-              const productName =
-                row["展品名称"] || row["制品名称"] || "";
-              const author =
-                row["作者"] || row["社团名"] || undefined;
-
-              return {
-                boothNumber: boothNumber.toString().trim(),
-                productName: productName.toString().trim(),
-                author: author?.toString().trim() || undefined,
-              };
-            })
-            .filter((item) => item.boothNumber || item.productName);
-        }
-
-        resolve(items);
+        resolve(parseExcelWorkbook(workbook, skipRows));
       } catch (error) {
         reject(new Error("Excel 解析失败: " + (error as Error).message));
       }

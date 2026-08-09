@@ -1,0 +1,116 @@
+{
+  "eventPageHtml": "<!doctype html><html><body><script id=\"event6377-scanner-manifest\" type=\"application/json\">{\"sourceEventId\":\"6377\",\"days\":[\"7040\",\"7042\"],\"types\":[{\"id\":36,\"name\":\"漫画\"},{\"id\":37,\"name\":\"小说\"},{\"id\":38,\"name\":\"图集\"},{\"id\":39,\"name\":\"音乐\"},{\"id\":40,\"name\":\"GAME\"},{\"id\":43,\"name\":\"卡片\"},{\"id\":44,\"name\":\"纸胶带\"},{\"id\":45,\"name\":\"COS\"},{\"id\":46,\"name\":\"其他\"},{\"id\":48,\"name\":\"手办\"},{\"id\":49,\"name\":\"亚克力\"},{\"id\":50,\"name\":\"图文志\"},{\"id\":51,\"name\":\"海报集\"},{\"id\":52,\"name\":\"其他作品集\"},{\"id\":53,\"name\":\"徽章\"},{\"id\":54,\"name\":\"色纸\"}]}</script></body></html>",
+  "manifest": {
+    "sourceEventId": "6377",
+    "days": ["7040", "7042"],
+    "typeIds": [36, 37, 38, 39, 40, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54],
+    "tasks": {
+      "7040:36": { "legalEmpty": false, "orders": { "1": [1, 2] } },
+      "7040:37": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:38": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:39": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:40": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:43": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:44": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:45": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:46": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:48": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:49": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:50": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:51": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:52": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:53": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7040:54": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:36": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:37": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:38": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:39": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:40": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:43": { "legalEmpty": false, "orders": { "1": [1, 2] } },
+      "7042:44": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:45": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:46": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:48": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:49": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:50": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:51": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:52": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:53": { "legalEmpty": true, "orders": { "1": [1] } },
+      "7042:54": { "legalEmpty": true, "orders": { "1": [1] } }
+    }
+  },
+  "responses": {
+    "7040:36:1:1": {
+      "isSuccess": true,
+      "result": {
+        "total": 1,
+        "list": [{
+          "doujinshiId": 6377001,
+          "doujinshiName": "event6377 离线漫画样本",
+          "authorList": [{ "authorName": "测试作者甲" }],
+          "coverPicUrl": "/fixture/event6377-1.png",
+          "tag": "原创|漫画",
+          "hotCount": 12,
+          "themeAlias": "原创",
+          "eventList": [{
+            "eventID": "7040",
+            "position": "甲A01",
+            "circleName": "测试社团甲"
+          }]
+        }]
+      }
+    },
+    "7040:36:1:2": { "isSuccess": true, "result": { "total": 1, "list": [] } },
+    "7040:37:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:38:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:39:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:40:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:43:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:44:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:45:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:46:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:48:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:49:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:50:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:51:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:52:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:53:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7040:54:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:36:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:37:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:38:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:39:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:40:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:43:1:1": {
+      "isSuccess": true,
+      "result": {
+        "total": 1,
+        "list": [{
+          "doujinshiId": 6377002,
+          "doujinshiName": "event6377 离线卡片样本",
+          "authorList": [{ "authorName": "测试作者乙" }],
+          "coverPicUrl": "",
+          "tag": "卡片",
+          "hotCount": 3,
+          "themeAlias": "原创",
+          "eventList": [{
+            "eventID": "7042",
+            "position": "乙B02",
+            "circleName": "测试社团乙"
+          }]
+        }]
+      }
+    },
+    "7042:43:1:2": { "isSuccess": true, "result": { "total": 1, "list": [] } },
+    "7042:44:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:45:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:46:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:48:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:49:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:50:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:51:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:52:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:53:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } },
+    "7042:54:1:1": { "isSuccess": true, "result": { "total": 0, "list": [] } }
+  }
+}

@@ -45,6 +45,9 @@ tsconfig.tsbuildinfo
 # CPP 同步断点与运行报告
 .cpp-sync/
 .matching-reports/
+.cpp-audit/
+.cpp-snapshots/
+.cpp-promotion/
 
 # 本地验收产物
 outputs/

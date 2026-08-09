@@ -142,6 +142,7 @@ export interface MatchInput {
   boothNumber: string;
   productName: string;
   author?: string;
+  circleName?: string;
   doujinshiId?: number;
 }
 

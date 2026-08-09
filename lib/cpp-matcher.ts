@@ -102,6 +102,93 @@ function maxAliasSimilarity(left: string[], right: string[]): number {
   return best;
 }
 
+/**
+ * CPG 空摊位安全匹配：只接受完整标准化名称精确相等，不复用模糊评分阈值。
+ * 只有完整制品名与输入社团名同时精确相等，且候选唯一时才接受。
+ */
+export function matchEmptyBoothByExactProductAndCircle(
+  input: MatchInput,
+  candidates: NormalizedCPPItem[],
+  source: MatchSource = "database-search"
+): MatchResult {
+  if (normalizeMatchText(input.boothNumber)) {
+    return {
+      matched: false,
+      decision: "unmatched",
+      confidence: "none",
+      source,
+      reason: "空摊位精确名称匹配仅处理未填写摊位号的条目",
+    };
+  }
+
+  const normalizedProduct = normalizeMatchText(input.productName);
+  if (!normalizedProduct) {
+    return {
+      matched: false,
+      decision: "unmatched",
+      confidence: "none",
+      source,
+      reason: "制品名称为空，无法执行空摊位精确匹配",
+    };
+  }
+
+  const exactById = new Map<number, NormalizedCPPItem>();
+  for (const candidate of candidates) {
+    if (
+      !normalizeMatchText(candidate.boothNumber) &&
+      normalizeMatchText(candidate.productName) === normalizedProduct
+    ) {
+      exactById.set(candidate.doujinshiId, candidate);
+    }
+  }
+  const exactCandidates = Array.from(exactById.values());
+  if (exactCandidates.length === 0) {
+    return {
+      matched: false,
+      decision: "unmatched",
+      confidence: "none",
+      source,
+      reason: "数据库中没有完整标准化名称相同的 CPG 制品",
+    };
+  }
+
+  // 新客户端将社团与作者分开；author 回退只兼容尚未升级的 CPG 客户端。
+  const normalizedCircle = normalizeMatchText(input.circleName || input.author || "");
+  const boothNameMatches = normalizedCircle
+    ? exactCandidates.filter(
+        (candidate) => normalizeMatchText(candidate.boothName) === normalizedCircle
+      )
+    : [];
+  const accepted = boothNameMatches.length === 1 ? boothNameMatches[0] : undefined;
+
+  if (accepted) {
+    return {
+      matched: true,
+      decision: "accepted",
+      confidence: "exact",
+      cppItem: accepted,
+      score: 1,
+      source,
+      reason: "完整标准化名称与社团名称同时精确匹配，且候选唯一",
+    };
+  }
+
+  return {
+    matched: false,
+    decision: "review",
+    confidence: "medium",
+    candidate: exactCandidates[0],
+    score: 1,
+    source,
+    requiresReview: true,
+    reason: !normalizedCircle
+      ? "完整名称存在候选，但缺少社团名称，需人工确认"
+      : boothNameMatches.length === 0
+        ? "完整名称存在候选，但社团名称不一致，需人工确认"
+        : `存在 ${boothNameMatches.length} 个完整名称与社团名称均相同的 CPG 制品，需人工确认`,
+  };
+}
+
 interface ScoredCandidate {
   item: NormalizedCPPItem;
   score: number;

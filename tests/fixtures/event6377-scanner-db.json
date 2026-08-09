@@ -1,0 +1,40 @@
+{
+  "manifest": {
+    "eventId": "cp32",
+    "days": ["7040", "7042"]
+  },
+  "rows": [
+    {
+      "event_id": "cp32",
+      "day_id": "7040",
+      "type_id": 36,
+      "type_name": "漫画",
+      "doujinshi_id": 6377001,
+      "product_name": "event6377 离线漫画样本",
+      "author": "测试作者甲",
+      "booth_number": "甲A01",
+      "booth_name": "测试社团甲",
+      "image_url": "https://imagecdn3.allcpp.cn/upload/fixture/event6377-1.png",
+      "tags": ["原创", "漫画"],
+      "source_url": "https://www.allcpp.cn/d/6377001.do",
+      "hot_count": 12,
+      "original_work": "原创"
+    },
+    {
+      "event_id": "cp32",
+      "day_id": "7042",
+      "type_id": 43,
+      "type_name": "卡片",
+      "doujinshi_id": 6377002,
+      "product_name": "event6377 离线卡片样本",
+      "author": "测试作者乙",
+      "booth_number": "乙B02",
+      "booth_name": "测试社团乙",
+      "image_url": "",
+      "tags": ["卡片"],
+      "source_url": "https://www.allcpp.cn/d/6377002.do",
+      "hot_count": 3,
+      "original_work": "原创"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+name: Sync CPG08 data
+
+on:
+  schedule:
+    - cron: "0 19 */2 * *"
+  workflow_dispatch:
+    inputs:
+      full_details:
+        description: Refresh details for every CPG item
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-cpg08
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Update CPG08 items
+        env:
+          CPP_COOKIE_JSON: ${{ secrets.CPP_COOKIE_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_CPP_SYNC_KEY: ${{ secrets.SUPABASE_CPP_SYNC_KEY }}
+          FULL_DETAILS: ${{ inputs.full_details || 'false' }}
+        run: |
+          if [ "$FULL_DETAILS" = "true" ]; then
+            npm run sync:cpg -- --fullDetails
+          else
+            npm run sync:cpg
+          fi

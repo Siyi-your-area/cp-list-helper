@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   createMatchIndex,
+  matchEmptyBoothByExactProductAndCircle,
   MatchIndex,
+  normalizeMatchText,
 } from "@/lib/cpp-matcher";
 import {
   enrichCPPItemWithDetail,
@@ -15,6 +17,7 @@ import {
 import {
   getCPPItems,
   getCPPItemsByBooths,
+  getCPPItemsByNormalizedProducts,
   getEventMembership,
   resolveCPPMatchScope,
   searchCPPItems,
@@ -31,6 +34,8 @@ const EXTERNAL_CONCURRENCY = 6;
 const MAX_EXTERNAL_TASKS = 40;
 const SERVER_BUDGET_MS = 28_000;
 const EXTERNAL_TIMEOUT_MS = 5_000;
+const CPG_DETAIL_CONCURRENCY = 6;
+const CPG_DETAIL_BUDGET_MS = 25_000;
 
 function elapsed(start: number) {
   return Math.round((performance.now() - start) * 10) / 10;
@@ -129,10 +134,71 @@ export async function POST(request: NextRequest) {
     const results = index.matchBatch(items, "database-index");
     const databaseMatchMs = elapsed(databaseMatchStart);
 
+    // CPG08 的真实导出可能没有摊位号。仅用完整标准化制品名批量取候选，
+    // 再由严格的唯一性规则决定接受或转人工复核，避免空摊位触发逐条模糊查询。
+    const emptyBoothBatchStart = performance.now();
+    const emptyBoothHandledIndices = new Set<number>();
+    let emptyBoothCandidates = 0;
+    if (eventId === "cpg08") {
+      const emptyBoothEntries = items
+        .map((item, indexValue) => ({
+          indexValue,
+          normalizedProduct: normalizeMatchText(item.productName),
+          hasBooth: Boolean(normalizeMatchText(item.boothNumber)),
+          hasExplicitId: Boolean(item.doujinshiId),
+        }))
+        .filter(
+          (entry) =>
+            !entry.hasBooth &&
+            !entry.hasExplicitId &&
+            Boolean(entry.normalizedProduct)
+        );
+
+      for (const entry of emptyBoothEntries) {
+        emptyBoothHandledIndices.add(entry.indexValue);
+      }
+
+      if (emptyBoothEntries.length > 0) {
+        try {
+          const emptyBoothItems = await getCPPItemsByNormalizedProducts(
+            eventId,
+            emptyBoothEntries.map((entry) => entry.normalizedProduct),
+            dayIds,
+            client
+          );
+          emptyBoothCandidates = emptyBoothItems.length;
+          const candidatesByProduct = new Map<string, typeof emptyBoothItems>();
+          for (const candidate of emptyBoothItems) {
+            if (normalizeMatchText(candidate.boothNumber)) continue;
+            const productKey = normalizeMatchText(candidate.productName);
+            if (!productKey) continue;
+            const productCandidates = candidatesByProduct.get(productKey) || [];
+            productCandidates.push(candidate);
+            candidatesByProduct.set(productKey, productCandidates);
+          }
+
+          for (const entry of emptyBoothEntries) {
+            results[entry.indexValue] = matchEmptyBoothByExactProductAndCircle(
+              items[entry.indexValue],
+              candidatesByProduct.get(entry.normalizedProduct) || [],
+              "database-search"
+            );
+          }
+        } catch (error) {
+          console.warn("[CPP Match] CPG empty-booth batch lookup failed", {
+            itemCount: emptyBoothEntries.length,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+    const emptyBoothBatchMs = elapsed(emptyBoothBatchStart);
+
     // 第一阶段 B：精确摊位候选不足时，按标准化名称查询数据库。
     const databaseSearchStart = performance.now();
     const dbTasks = new Map<string, { keyword: string; indices: number[] }>();
     results.forEach((result, indexValue) => {
+      if (emptyBoothHandledIndices.has(indexValue)) return;
       if (!shouldRetry(result)) return;
       const keyword = extractSearchKeyword(items[indexValue].productName);
       if (!keyword) return;
@@ -169,6 +235,7 @@ export async function POST(request: NextRequest) {
     const deadline = requestStart + SERVER_BUDGET_MS;
     const externalTasks = new Map<string, { keyword: string; indices: number[] }>();
     results.forEach((result, indexValue) => {
+      if (emptyBoothHandledIndices.has(indexValue)) return;
       if (!shouldRetry(result)) return;
       const input = items[indexValue];
       if (!isCPPExternalFallbackEligible(input)) return;
@@ -233,6 +300,70 @@ export async function POST(request: NextRequest) {
       }
     );
     const externalMs = elapsed(externalStart);
+    const externalBudgetExceeded = performance.now() >= deadline;
+
+    // CPG 搜索/数据库快照可能缺少交换类型。匹配决策完成后，仅为已接受的
+    // 数据库结果按制品 ID 去重尽力补详情；失败时保留匹配结果，由前端按有料处理。
+    const cpgDetailStart = performance.now();
+    const cpgDetailTargets = new Map<number, number[]>();
+    if (eventId === "cpg08") {
+      results.forEach((result, indexValue) => {
+        const cppItem = result.cppItem;
+        if (
+          result.decision !== "accepted" ||
+          result.source === "external-api" ||
+          !cppItem?.doujinshiId ||
+          cppItem.exchangeType?.trim()
+        ) {
+          return;
+        }
+        const targetIndices = cpgDetailTargets.get(cppItem.doujinshiId) || [];
+        targetIndices.push(indexValue);
+        cpgDetailTargets.set(cppItem.doujinshiId, targetIndices);
+      });
+    }
+
+    const cpgDetailCookie = cpgDetailTargets.size > 0
+      ? cppCookie || getCPPCookieHeader()
+      : "";
+    const cpgDetailEnabled = Boolean(cpgDetailCookie && cpgDetailTargets.size > 0);
+    const cpgDetailDeadline = Math.min(
+      performance.now() + CPG_DETAIL_BUDGET_MS,
+      requestStart + SERVER_BUDGET_MS
+    );
+    let cpgDetailAttempted = 0;
+    let cpgDetailResponses = 0;
+    let cpgDetailExchangeTypes = 0;
+    if (cpgDetailEnabled) {
+      await mapWithConcurrency(
+        Array.from(cpgDetailTargets.keys()),
+        CPG_DETAIL_CONCURRENCY,
+        async (doujinshiId) => {
+          if (performance.now() >= cpgDetailDeadline) return;
+          cpgDetailAttempted += 1;
+          const detail = await fetchCPPExternalDetail(
+            doujinshiId,
+            cpgDetailCookie,
+            cpgDetailDeadline
+          );
+          if (!detail) return;
+          cpgDetailResponses += 1;
+          if (detail.exchangeType) cpgDetailExchangeTypes += 1;
+          for (const indexValue of cpgDetailTargets.get(doujinshiId) || []) {
+            const current = results[indexValue];
+            if (!current.cppItem) continue;
+            results[indexValue] = {
+              ...current,
+              cppItem: enrichCPPItemWithDetail(current.cppItem, detail),
+            };
+          }
+        }
+      );
+    }
+    const cpgDetailMs = elapsed(cpgDetailStart);
+    const cpgDetailBudgetExceeded =
+      cpgDetailAttempted < cpgDetailTargets.size &&
+      performance.now() >= cpgDetailDeadline;
 
     const accepted = results.filter((result) => result.decision === "accepted").length;
     const review = results.filter((result) => result.decision === "review").length;
@@ -254,17 +385,25 @@ export async function POST(request: NextRequest) {
       low: results.filter((result) => result.confidence === "low").length,
       none: unmatched,
       databaseCandidates: candidates.length,
+      emptyBoothBatchItems: emptyBoothHandledIndices.size,
+      emptyBoothCandidates,
       databaseSearchTasks: dbTasks.size,
       externalEligible: externalTasks.size,
       externalEnabled,
       externalAttempted: selectedExternalTasks.length,
       externalResponses,
       externalDetails,
+      cpgDetailEligible: cpgDetailTargets.size,
+      cpgDetailEnabled,
+      cpgDetailAttempted,
+      cpgDetailResponses,
+      cpgDetailExchangeTypes,
+      cpgDetailBudgetExceeded,
       fromAPI: fromExternal,
       fallbackRate: items.length > 0
         ? Math.round((selectedExternalTasks.length / items.length) * 10_000) / 100
         : 0,
-      budgetExceeded: performance.now() >= deadline,
+      budgetExceeded: externalBudgetExceeded,
     };
     const timings = {
       clientParseMs: body.clientTimings?.parseMs,
@@ -273,8 +412,11 @@ export async function POST(request: NextRequest) {
       scopeMs,
       candidateQueryMs,
       databaseMatchMs,
+      emptyBoothBatchMs,
       databaseSearchMs,
       externalMs,
+      cpgDetailMs,
+      cpgDetailBudgetMs: CPG_DETAIL_BUDGET_MS,
       serverTotalMs,
       targetMs: 30_000,
       withinTarget: serverTotalMs <= 30_000,

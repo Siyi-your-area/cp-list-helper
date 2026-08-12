@@ -14,6 +14,11 @@ import {
 import type { WishItem } from "@/lib/types";
 import { getVisibleWishNote } from "@/lib/match-review";
 import { STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
+import {
+  CPG_VENUE_ORDER,
+  compareWishItemsByLocation,
+  getWishItemVenue,
+} from "@/lib/wish-item-sort";
 
 // ============================================================
 // 类型
@@ -48,14 +53,8 @@ function getNextStatus(current: string, type: "paid" | "free"): string {
 // ============================================================
 
 function getArea(boothNumber: string): string {
-  if (!boothNumber) return "其他";
-  const first = boothNumber.charAt(0);
-  // 中文字符
-  if (/[一-龥]/.test(first)) return first;
-  return "其他";
+  return getWishItemVenue({ boothNumber }) || "其他";
 }
-
-const AREA_ORDER = ["壹", "贰", "叁", "肆", "伍", "陆", "柒", "捌", "玖", "拾"];
 
 /**
  * 状态颜色 — 直接返回 Tailwind class（JIT 可检测）
@@ -124,10 +123,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
     // 排序：默认按摊位号，优先级/热度可切换/取消
     result.sort((a, b) => {
-      const boothCompare = a.boothNumber.localeCompare(b.boothNumber, "zh-Hans-CN", {
-        numeric: true,
-        sensitivity: "base",
-      });
+      const locationCompare = compareWishItemsByLocation(a, b);
 
       if (sortMode === "hot") {
         const aHot = a.hotCount || 0;
@@ -141,7 +137,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
         if (aP !== bP) return aP - bP;
       }
 
-      return boothCompare;
+      return locationCompare;
     });
 
     return result;
@@ -156,7 +152,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
       if (area !== "其他") set.add(area);
     });
     // 按 AREA_ORDER 排序，没有的放最后
-    return AREA_ORDER.filter((a) => set.has(a));
+    return CPG_VENUE_ORDER.filter((area) => set.has(area));
   }, [items]);
 
   // ---- 状态切换 ----

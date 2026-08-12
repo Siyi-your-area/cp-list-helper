@@ -28,6 +28,7 @@ import { parseExcelFile } from "@/lib/excel-parser";
 import { buildReviewNote } from "@/lib/match-review";
 import { detectWishItemType, resolveImportedAuthor } from "@/lib/cpp-item-mapping";
 import { matchCPPItemsInBatches } from "@/lib/cpp-match-client";
+import { getWishItemVenue } from "@/lib/wish-item-sort";
 import { BearLogo } from "@/components/BearLogo";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
 
@@ -217,7 +218,7 @@ export default function Home() {
             productName: input.productName,
             author: resolveImportedAuthor(input, cppItem),
             imageUrl: cppItem?.imageUrl || "",
-            venue: input.boothNumber.charAt(0) || "",
+            venue: getWishItemVenue({ boothNumber: input.boothNumber }),
             type: itemType,
             status: itemType === "free" ? "待领取" : "pending",
             hotCount: cppItem?.hotCount || 0,

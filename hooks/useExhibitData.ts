@@ -175,7 +175,9 @@ export function useExhibitData(eventId: string) {
 
   const updateItemLocally = useCallback((itemId: string, updates: Partial<WishItem>) => {
     dirtyIdsRef.current.add(itemId);
-    setItems((current) => current.map((item) => item.id === itemId ? { ...item, ...updates } : item));
+    const nextItems = itemsRef.current.map((item) => item.id === itemId ? { ...item, ...updates } : item);
+    itemsRef.current = nextItems;
+    setItems(nextItems);
   }, []);
 
   const saveItemDrafts = useCallback(async (itemIdsOrDrafts: string[] | WishItem[]) => {
@@ -185,14 +187,18 @@ export function useExhibitData(eventId: string) {
       : itemIdsOrDrafts as WishItem[];
     drafts.forEach((item) => dirtyIdsRef.current.add(item.id));
     const draftById = new Map(drafts.map((item) => [item.id, item]));
-    setItems((current) => current.map((item) => draftById.get(item.id) || item));
+    const optimisticItems = itemsRef.current.map((item) => draftById.get(item.id) || item);
+    itemsRef.current = optimisticItems;
+    setItems(optimisticItems);
     try {
       const saved = await saveWishItemDraftsAsync(eventId, drafts);
       const savedById = new Map(saved.map((item) => [item.id, item]));
       saved.forEach((item) => dirtyIdsRef.current.delete(item.id));
       const savedIds = new Set(saved.map((item) => item.id));
       setConflicts((current) => current.filter((entry) => !savedIds.has(entry.itemId)));
-      setItems((current) => current.map((item) => savedById.get(item.id) || item));
+      const nextItems = itemsRef.current.map((item) => savedById.get(item.id) || item);
+      itemsRef.current = nextItems;
+      setItems(nextItems);
       return saved;
     } catch (error) {
       if (isConflictError(error)) await refresh();

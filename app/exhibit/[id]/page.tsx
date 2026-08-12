@@ -44,6 +44,11 @@ import {
   getLatestCPPDataTimestamp,
   syncWishItemsFromLatestCPP,
 } from "@/lib/db-service";
+import {
+  compareWishItemsByLocation,
+  getWishItemVenue,
+  normalizeWishItemLocation,
+} from "@/lib/wish-item-sort";
 
 const PAGE_SIZE = 100;
 
@@ -356,7 +361,12 @@ export default function ExhibitDetail() {
 
     try {
       setSavingEdits(true);
-      await saveItemDrafts(Array.from(dirtyItemIdsRef.current));
+      const dirtyIds = dirtyItemIdsRef.current;
+      const drafts = items
+        .filter((item) => dirtyIds.has(item.id))
+        .map(normalizeWishItemLocation);
+      drafts.forEach((draft) => updateItemLocally(draft.id, draft));
+      await saveItemDrafts(Array.from(dirtyIds));
       dirtyItemIdsRef.current.clear();
       setEditMode(false);
     } catch (error) {
@@ -367,8 +377,9 @@ export default function ExhibitDetail() {
   };
 
   const handleSaveMobileItem = async (item: WishItem) => {
-    updateItemLocally(item.id, item);
-    await saveItemDrafts([item]);
+    const normalizedItem = normalizeWishItemLocation(item);
+    updateItemLocally(item.id, normalizedItem);
+    await saveItemDrafts([normalizedItem]);
   };
 
   const reviewItems = useMemo(
@@ -423,23 +434,28 @@ export default function ExhibitDetail() {
           matched: true,
           cppItem,
         } as MatchResult);
+        const confirmedBoothNumber = cppItem.boothNumber || item.boothNumber;
         return {
           ...item,
+          boothNumber: confirmedBoothNumber,
+          productName: cppItem.productName || item.productName,
           author: cppItem.author || item.author || "",
           imageUrl: cppItem.imageUrl || item.imageUrl || "",
+          venue: getWishItemVenue({ boothNumber: confirmedBoothNumber }),
           type: confirmedType,
           status:
             item.status === "pending" && confirmedType === "free"
               ? "待领取"
               : item.status,
-          hotCount: cppItem.hotCount || 0,
-          description: cppItem.description || "",
+          hotCount: cppItem.hotCount ?? item.hotCount ?? 0,
+          description: cppItem.description || item.description || "",
           matchedCPPItem: cppItem,
           matchConfidence: result?.confidence || "exact",
-          note: undefined,
+          note: "",
         };
       });
 
+      drafts.forEach((draft) => updateItemLocally(draft.id, draft));
       await saveItemDrafts(drafts);
       const confirmedIds = new Set(itemIds);
       setSelectedReviewIds((current) => {
@@ -460,11 +476,13 @@ export default function ExhibitDetail() {
     if (targets.length === 0) return;
     try {
       setResolvingReviews(true);
-      await saveItemDrafts(targets.map(({ item }) => ({
+      const drafts = targets.map(({ item }) => ({
         ...item,
         matchConfidence: "none" as const,
-        note: undefined,
-      })));
+        note: "",
+      }));
+      drafts.forEach((draft) => updateItemLocally(draft.id, draft));
+      await saveItemDrafts(drafts);
       const ignoredIds = new Set(itemIds);
       setSelectedReviewIds((current) => {
         const next = new Set(current);
@@ -598,7 +616,7 @@ export default function ExhibitDetail() {
           productName: input.productName,
           author: resolveImportedAuthor(input, result?.cppItem),
           imageUrl: result?.cppItem?.imageUrl || "",
-          venue: input.boothNumber.charAt(0) || "",
+          venue: getWishItemVenue({ boothNumber: input.boothNumber }),
           type,
           status: type === "free" ? "待领取" : "pending",
           hotCount: result?.cppItem?.hotCount || 0,
@@ -670,7 +688,6 @@ export default function ExhibitDetail() {
         { header: "制品名称", key: "productName", width: 28 },
         { header: "作者", key: "author", width: 18 },
         { header: "图片", key: "image", width: 14 },
-        { header: "图片链接", key: "imageUrl", width: 32 },
         { header: "优先级", key: "priority", width: 10 },
         { header: "开摊信息", key: "openInfo", width: 18 },
         { header: "类型", key: "type", width: 10 },
@@ -692,7 +709,6 @@ export default function ExhibitDetail() {
           productName: item.productName,
           author: item.author,
           image: item.imageUrl ? "见图" : "",
-          imageUrl: item.imageUrl || "",
           priority: item.priority,
           openInfo: item.openInfo,
           type: item.type === "paid" ? "有料" : item.type === "free" ? "无料" : "",
@@ -743,7 +759,7 @@ export default function ExhibitDetail() {
 
   // ---- 搜索 + 排序 + 分页 ----
 
-  const groupedItems = useMemo(() => {
+  const flattenedItems = useMemo(() => {
     let filtered = items;
 
     if (searchKeyword) {
@@ -757,47 +773,28 @@ export default function ExhibitDetail() {
     }
 
     const sorted = [...filtered].sort((a, b) => {
-      const boothCompare = a.boothNumber.localeCompare(b.boothNumber, "zh-Hans-CN", {
-        numeric: true,
-        sensitivity: "base",
-      });
+      const locationCompare = compareWishItemsByLocation(a, b);
 
       if (desktopSortMode === "hot") {
         // 按热度排序（降序）
         const aHot = a.hotCount || 0;
         const bHot = b.hotCount || 0;
         if (aHot !== bHot) return bHot - aHot;
-        return boothCompare;
+        return locationCompare;
       }
 
       if (desktopSortMode === "priority") {
         const aP = PRIORITY_ORDER[a.priority || "随缘"] || 6;
         const bP = PRIORITY_ORDER[b.priority || "随缘"] || 6;
         if (aP !== bP) return aP - bP;
-        return boothCompare;
+        return locationCompare;
       }
 
       // 默认按摊位号排序
-      return boothCompare;
+      return locationCompare;
     });
-
-    const grouped: Record<string, WishItem[]> = {};
-    sorted.forEach((item) => {
-      const venue = item.venue || "未知";
-      if (!grouped[venue]) grouped[venue] = [];
-      grouped[venue].push(item);
-    });
-
-    return grouped;
+    return sorted;
   }, [items, searchKeyword, desktopSortMode]);
-
-  const flattenedItems = useMemo(() => {
-    const items: WishItem[] = [];
-    Object.entries(groupedItems).forEach(([, venueItems]) => {
-      venueItems.forEach((item) => items.push(item));
-    });
-    return items;
-  }, [groupedItems]);
 
   const paginatedItems = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
@@ -1191,7 +1188,7 @@ export default function ExhibitDetail() {
                   )}
                   <Th width="50px">场馆</Th>
                   <Th width="70px">摊位号</Th>
-                  <Th width="200px">制品名称</Th>
+                  <Th width="200px" minWidth="180px">制品名称</Th>
                   <Th width="120px">作者</Th>
                   <Th width="60px">图片</Th>
                   <Th width="70px">优先级</Th>
@@ -1238,7 +1235,7 @@ export default function ExhibitDetail() {
                       )}
                     </Td>
                     {/* 制品名称 */}
-                    <Td minWidth={editMode ? "216px" : undefined} maxWidth={editMode ? undefined : "200px"} wrap>
+                    <Td minWidth={editMode ? "216px" : "180px"} maxWidth={editMode ? undefined : "240px"} wrap>
                       {editMode ? (
                         <input type="text" value={item.productName} onChange={(e) => handleDraftItem(item.id, "productName", e.target.value)} className="w-full px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
@@ -1721,7 +1718,7 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
   );
 }
 
-function Th({ children, stickyRight, width }: { children: React.ReactNode; stickyRight?: string; width?: string }) {
+function Th({ children, stickyRight, width, minWidth }: { children: React.ReactNode; stickyRight?: string; width?: string; minWidth?: string }) {
   const style: any = {};
   if (stickyRight) {
     style.position = "sticky";
@@ -1729,6 +1726,7 @@ function Th({ children, stickyRight, width }: { children: React.ReactNode; stick
     style.zIndex = 20;
   }
   if (width) style.width = width;
+  if (minWidth) style.minWidth = minWidth;
   return (
     <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase border-b whitespace-nowrap" style={style}>
       {children}

@@ -2,7 +2,8 @@ name: Sync CPG08 data
 
 on:
   schedule:
-    - cron: "0 19 */2 * *"
+    # UTC 19:00 = 北京时间次日 03:00，每天执行一次。
+    - cron: "0 19 * * *"
   workflow_dispatch:
     inputs:
       full_details:

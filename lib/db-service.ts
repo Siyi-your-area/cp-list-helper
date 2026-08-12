@@ -8,6 +8,7 @@ import { supabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Exhibit, WishItem, NormalizedCPPItem, MatchInput, MatchResult, MatchConfidence, EventMembership } from "./types";
 import { createCompatibleUUID } from "./client-id";
+import { getWishItemVenue } from "./wish-item-sort";
 
 function databaseErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -659,7 +660,7 @@ export function dbRowToWishItem(row: any): WishItem {
     productName: row.product_name || "",
     author: row.author || undefined,
     imageUrl: row.image_url || undefined,
-    venue: row.booth_number?.charAt(0) || "",
+    venue: getWishItemVenue({ boothNumber: row.booth_number || "" }),
     type: row.item_type || "paid",
     status: row.status || "pending",
     priority: row.priority || undefined,

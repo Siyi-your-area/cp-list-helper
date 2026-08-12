@@ -18,11 +18,12 @@ function loadLocationHelpers() {
 
 test("creator booths keep their booth number and never infer a venue", () => {
   const { getWishItemVenue, normalizeWishItemLocation } = loadLocationHelpers();
-  assert.equal(getWishItemVenue({ boothNumber: "创159", venue: "壹" }), "");
+  assert.equal(getWishItemVenue({ boothNumber: "创064", venue: "壹" }), "");
+  assert.equal(getWishItemVenue({ boothNumber: "创００７", venue: "伍" }), "");
   assert.equal(getWishItemVenue({ boothNumber: "壹A01" }), "壹");
   assert.deepEqual(
-    normalizeWishItemLocation({ id: "1", boothNumber: "创159", venue: "创", productName: "test", status: "pending" }),
-    { id: "1", boothNumber: "创159", venue: "", productName: "test", status: "pending" }
+    normalizeWishItemLocation({ id: "1", boothNumber: "创064", venue: "创", productName: "test", status: "pending" }),
+    { id: "1", boothNumber: "创064", venue: "", productName: "test", status: "pending" }
   );
 });
 
@@ -36,7 +37,15 @@ test("draft state is updated synchronously before saving", () => {
   const hook = read("hooks/useExhibitData.ts");
   assert.match(hook, /itemsRef\.current = nextItems;\s*setItems\(nextItems\);/);
   assert.match(hook, /itemsRef\.current = optimisticItems;\s*setItems\(optimisticItems\);/);
+  assert.match(hook, /const drafts = draftSource\.map\(normalizeWishItemLocation\);/);
 
   const page = read("app/exhibit/[id]/page.tsx");
-  assert.match(page, /drafts\.forEach\(\(draft\) => updateItemLocally\(draft\.id, draft\)\);\s*await saveItemDrafts\(drafts\);/);
+  assert.match(page, /await saveItemDrafts\(Array\.from\(dirtyIds\)\);/);
+  assert.doesNotMatch(page, /const drafts = items\s*\.filter\(\(item\) => dirtyIds\.has\(item\.id\)\)/);
+});
+
+test("mobile drawer keeps its content scrollable and actions reachable", () => {
+  const source = read("components/MobileTableView.tsx");
+  assert.match(source, /max-h-\[92dvh\][^"\n]*min-h-0[^"\n]*overflow-hidden/);
+  assert.match(source, /min-h-0 flex-1 overflow-y-auto px-4 pb-6/);
 });

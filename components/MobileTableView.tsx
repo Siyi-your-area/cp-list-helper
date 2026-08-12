@@ -476,7 +476,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
           />
 
           {/* 抽屉内容 */}
-          <div className="relative bg-white rounded-t-2xl max-h-[92dvh] flex flex-col animate-slide-up">
+          <div className="relative bg-white rounded-t-2xl max-h-[92dvh] flex min-h-0 flex-col overflow-hidden animate-slide-up">
             {/* 拖拽条 */}
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-10 h-1 rounded-full bg-slate-300" />
@@ -491,7 +491,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
             </button>
 
             {/* 可滚动内容 */}
-            <div className="overflow-y-auto flex-1 px-4 pb-28">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
               {/* 大图 + 上传按钮 */}
               <div className="relative w-full h-56 bg-slate-100 rounded-xl overflow-hidden mb-4 flex items-center justify-center">
                 {drawerItem.imageUrl ? (

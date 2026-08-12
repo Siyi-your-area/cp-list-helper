@@ -49,6 +49,7 @@ import {
   getWishItemVenue,
   normalizeWishItemLocation,
 } from "@/lib/wish-item-sort";
+import { loadExcelImagesConcurrently } from "@/lib/excel-image-loader";
 
 const PAGE_SIZE = 100;
 
@@ -362,10 +363,6 @@ export default function ExhibitDetail() {
     try {
       setSavingEdits(true);
       const dirtyIds = dirtyItemIdsRef.current;
-      const drafts = items
-        .filter((item) => dirtyIds.has(item.id))
-        .map(normalizeWishItemLocation);
-      drafts.forEach((draft) => updateItemLocally(draft.id, draft));
       await saveItemDrafts(Array.from(dirtyIds));
       dirtyItemIdsRef.current.clear();
       setEditMode(false);
@@ -702,7 +699,12 @@ export default function ExhibitDetail() {
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).height = 22;
 
-      for (const item of items) {
+      const excelImages = await loadExcelImagesConcurrently(
+        items.map((item) => item.imageUrl || ""),
+        imageUrlToExcelImage
+      );
+
+      items.forEach((item, index) => {
         const row = worksheet.addRow({
           venue: item.venue,
           boothNumber: item.boothNumber,
@@ -721,17 +723,15 @@ export default function ExhibitDetail() {
         });
         row.height = 58;
 
-        if (item.imageUrl) {
-          const image = await imageUrlToExcelImage(item.imageUrl);
-          if (image) {
-            const imageId = workbook.addImage(image);
-            worksheet.addImage(imageId, {
-              tl: { col: 4.15, row: row.number - 0.85 },
-              ext: { width: 48, height: 48 },
-            });
-          }
+        const image = excelImages[index];
+        if (image) {
+          const imageId = workbook.addImage(image);
+          worksheet.addImage(imageId, {
+            tl: { col: 4.15, row: row.number - 0.85 },
+            ext: { width: 48, height: 48 },
+          });
         }
-      }
+      });
 
       worksheet.eachRow((row) => {
         row.alignment = { vertical: "middle", wrapText: true };

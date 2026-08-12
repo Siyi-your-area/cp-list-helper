@@ -44,9 +44,16 @@ export function parseExcelSheet(
     blankrows: false,
   });
 
-  if (rawData.length < skipRows + 1) return [];
+  if (rawData.length < 2) return [];
 
-  const headerRow = rawData[skipRows - 1] || [];
+  const searchRowCount = Math.min(rawData.length, Math.max(5, skipRows + 1));
+  const headerIndex = rawData
+    .slice(0, searchRowCount)
+    .findIndex((row) =>
+      findColumn(row || [], COLUMN_ALIASES.boothNumber) >= 0
+      && findColumn(row || [], COLUMN_ALIASES.productName) >= 0
+    );
+  const headerRow = headerIndex >= 0 ? rawData[headerIndex] : [];
   const boothCol = findColumn(headerRow, COLUMN_ALIASES.boothNumber);
   const productCol = findColumn(headerRow, COLUMN_ALIASES.productName);
   const authorCol = findColumn(headerRow, COLUMN_ALIASES.author);
@@ -54,7 +61,7 @@ export function parseExcelSheet(
 
   if (boothCol >= 0 && productCol >= 0) {
     const items: MatchInput[] = [];
-    for (let index = skipRows; index < rawData.length; index += 1) {
+    for (let index = headerIndex + 1; index < rawData.length; index += 1) {
       const row = rawData[index];
       if (!row || row.length === 0) continue;
 

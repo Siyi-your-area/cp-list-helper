@@ -12,6 +12,7 @@ import {
   deleteWishItemsAsync,
 } from "@/lib/storage";
 import { supabase } from "@/lib/supabase";
+import { normalizeWishItemLocation } from "@/lib/wish-item-sort";
 import { dbRowToWishItem, getEventMembership } from "@/lib/db-service";
 import { claimLegacyAccess, ensureAnonymousSession } from "@/lib/auth-client";
 import { getClientId } from "@/lib/client-id";
@@ -182,9 +183,10 @@ export function useExhibitData(eventId: string) {
 
   const saveItemDrafts = useCallback(async (itemIdsOrDrafts: string[] | WishItem[]) => {
     if (itemIdsOrDrafts.length === 0) return [];
-    const drafts = typeof itemIdsOrDrafts[0] === "string"
+    const draftSource = typeof itemIdsOrDrafts[0] === "string"
       ? itemsRef.current.filter((item) => (itemIdsOrDrafts as string[]).includes(item.id))
       : itemIdsOrDrafts as WishItem[];
+    const drafts = draftSource.map(normalizeWishItemLocation);
     drafts.forEach((item) => dirtyIdsRef.current.add(item.id));
     const draftById = new Map(drafts.map((item) => [item.id, item]));
     const optimisticItems = itemsRef.current.map((item) => draftById.get(item.id) || item);

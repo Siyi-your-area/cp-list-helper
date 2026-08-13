@@ -2,6 +2,8 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowSquareOut,
+  BookOpenText,
+  CaretDown,
   Database,
   Gavel,
   Handshake,
@@ -84,6 +86,63 @@ export default function AboutPage() {
               <ArrowSquareOut className="h-4 w-4" />
             </a>
           </div>
+
+          <details className="group mt-5 border-t border-slate-200 pt-4">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-rose-100 text-slate-700">
+                  <BookOpenText className="h-5 w-5" />
+                </span>
+                <span>
+                  <span className="block text-base font-semibold">开发者小日记</span>
+                  <span className="block text-xs text-slate-500">点击展开彩蛋</span>
+                </span>
+              </span>
+              <CaretDown className="h-5 w-5 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+            </summary>
+
+            <article className="mt-3 space-y-5 rounded-2xl bg-rose-50/60 px-4 py-5 text-sm leading-7 text-slate-700 sm:px-6 sm:py-6 sm:text-base sm:leading-8">
+              <p>
+                开发的时候翻到了自己近10年去cp的list，最早可以追溯到2017年，一开始是excel，在本科学校四楼的图书馆里新建一张表，手动把想要的东西录进去，去cp之前打印出来，还要带上一根笔，没准开展前一天还要新增，后来是电子表格，豪气万丈地告诉朋友，你需要我帮你代购的，都填在这个表就可以，和亲友交换表格，然后每年在cp过购物节狂买上几千块。
+                <br />
+                我是一个超级p人，恨按部就班，只有做这个，确实是开心的。
+              </p>
+
+              <div className="space-y-2">
+                <p className="font-semibold text-slate-900">这是一个关于「期待」的故事。</p>
+                <p>
+                  幸福不只产生于幸福的事发生的那一刻，期待幸福，本身就是一种幸福。
+                  <br />
+                  周五下班的时候看周六要去哪里吃饭，旅行前搜目的地有什么好吃的，cp前搜索要买什么本子，在漫长而痛苦的生活里，需要靠着这一点点甜来支撑自己。
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p>
+                  因为太讨厌我的工作，我像狗一样乞求我的生活中能有一星半点的正反馈，于是我开始做了这个项目。
+                </p>
+                <p>
+                  首先应该来源于自己。正如搞同人，万千理由，不过是自己喜欢。
+                  <br />
+                  其次应该简单。每一个功能都应该着力于解决已有的问题。
+                  <br />
+                  最后应该完整。在脑海里放映了我每次去展会的流程，点心愿单，梳理信息，分享，采购，环环相扣，于是有了这样一个工具。
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-semibold text-slate-900">工具是为了帮助人，而不是代替人。</p>
+                <p>
+                  我希望能帮人免去统计和四处收集的重复性事务，帮人快速统计和记录信息，最大程度地减少过程中蹉跎的沙砾感——which i think，作为一个简中同人女，大家都背负了太多。但喜欢什么、想买什么、怎么去玩，这些让人幸福的、让人期待的，还是需要每一个人亲自来做、来体会。
+                </p>
+              </div>
+
+              <footer className="pt-1 text-left">
+                <p className="font-bold text-slate-900">衷心地希望你能在cp玩得开心&gt;&lt;</p>
+                <p className="mt-2 text-right text-slate-600">同人女 黄白熊</p>
+              </footer>
+            </article>
+          </details>
         </section>
 
         <div className="ui-surface divide-y divide-slate-200 px-5 sm:px-6">

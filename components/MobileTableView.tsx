@@ -27,7 +27,7 @@ import {
 interface MobileTableViewProps {
   items: WishItem[];
   onUpdateItem: (id: string, field: keyof WishItem, value: any) => void;
-  onSaveItem: (item: WishItem) => Promise<void>;
+  onSaveItem: (item: WishItem) => Promise<WishItem>;
   onRemoveItem: (id: string) => void | Promise<void>;
 }
 
@@ -189,7 +189,8 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
   const handleDrawerSave = async () => {
     if (!drawerItem) return;
     try {
-      await onSaveItem(drawerItem);
+      const savedItem = await onSaveItem(drawerItem);
+      setDrawerItem(savedItem);
       setDrawerEditing(false);
     } catch (error) {
       alert("保存失败: " + (error as Error).message);
@@ -714,9 +715,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
               {/* 编辑模式 vs 查看模式 */}
               {drawerEditing ? (
                 <div className="space-y-3 mb-4">
-                  {drawerItem.type !== "free" && (
-                    <EditField label="备注" value={getVisibleWishNote(drawerItem.note)} onChange={(v) => handleDrawerUpdate("note", v)} multiline maxLength={NOTE_MAX_LENGTH} />
-                  )}
+                  <EditField label="备注" value={getVisibleWishNote(drawerItem.note)} onChange={(v) => handleDrawerUpdate("note", v)} multiline maxLength={NOTE_MAX_LENGTH} />
                   <EditField label="制品名称" value={drawerItem.productName} onChange={(v) => handleDrawerUpdate("productName", v)} />
                   <EditField label="作者" value={drawerItem.author || ""} onChange={(v) => handleDrawerUpdate("author", v)} />
                 </div>

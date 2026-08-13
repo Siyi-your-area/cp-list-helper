@@ -390,7 +390,10 @@ export default function ExhibitDetail() {
   const handleSaveMobileItem = async (item: WishItem) => {
     const normalizedItem = normalizeWishItemLocation(item);
     updateItemLocally(item.id, normalizedItem);
-    await saveItemDrafts([normalizedItem]);
+    const savedItems = await saveItemDrafts([normalizedItem]);
+    const savedItem = savedItems[0];
+    if (!savedItem) throw new Error("保存后未返回条目，请重试");
+    return savedItem;
   };
 
   const reviewItems = useMemo(

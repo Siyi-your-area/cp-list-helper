@@ -49,3 +49,19 @@ test("mobile drawer keeps its content scrollable and actions reachable", () => {
   assert.match(source, /max-h-\[92dvh\][^"\n]*min-h-0[^"\n]*overflow-hidden/);
   assert.match(source, /min-h-0 flex-1 overflow-y-auto px-4 pb-6/);
 });
+
+test("mobile drawer adopts the saved row version before another edit", () => {
+  const mobile = read("components/MobileTableView.tsx");
+  const page = read("app/exhibit/[id]/page.tsx");
+
+  assert.match(mobile, /onSaveItem: \(item: WishItem\) => Promise<WishItem>/);
+  assert.match(mobile, /const savedItem = await onSaveItem\(drawerItem\);\s*setDrawerItem\(savedItem\);/);
+  assert.match(page, /const savedItems = await saveItemDrafts\(\[normalizedItem\]\);/);
+  assert.match(page, /return savedItem;/);
+});
+
+test("free items keep the note editor available", () => {
+  const source = read("components/MobileTableView.tsx");
+  assert.match(source, /<EditField label="备注"[\s\S]{0,250}handleDrawerUpdate\("note", v\)/);
+  assert.doesNotMatch(source, /drawerItem\.type !== "free"\s*&&\s*\([\s\S]{0,300}<EditField label="备注"/);
+});

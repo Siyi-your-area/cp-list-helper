@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CP list帮手｜添加制品交互原型</title>
+  <style>
+    :root {
+      --ink: #303733;
+      --muted: #6f7771;
+      --line: #dedfd9;
+      --surface: #ffffff;
+      --page: #f5f5f2;
+      --field: #fafaf8;
+      --brand: #657067;
+      --rose: #f0ddda;
+      --rose-soft: #fbf3f1;
+      --ok: #55735f;
+      --ok-bg: #edf5ef;
+      --danger: #a65d54;
+      --danger-bg: #fff1ef;
+      --shadow: 0 24px 70px rgba(48, 55, 51, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% 10%, rgba(240, 221, 218, .7), transparent 30%),
+        var(--page);
+      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button { color: inherit; }
+
+    .prototype-bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px max(18px, calc((100vw - 1120px) / 2));
+      border-bottom: 1px solid rgba(222, 223, 217, .92);
+      background: rgba(255, 255, 255, .92);
+      backdrop-filter: blur(14px);
+    }
+
+    .prototype-title { min-width: 170px; }
+    .prototype-title strong { display: block; font-size: 15px; }
+    .prototype-title span { color: var(--muted); font-size: 12px; }
+
+    .state-switcher {
+      display: flex;
+      gap: 5px;
+      padding: 4px;
+      border-radius: 13px;
+      background: #eeefeb;
+    }
+
+    .state-button {
+      min-height: 40px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+      font-weight: 650;
+      font-size: 13px;
+      transition: .18s ease;
+    }
+
+    .state-button[aria-selected="true"] {
+      color: #fff;
+      background: var(--brand);
+      box-shadow: 0 4px 12px rgba(48, 55, 51, .14);
+    }
+
+    .stage {
+      min-height: calc(100vh - 70px);
+      display: grid;
+      place-items: center;
+      padding: 38px 20px;
+    }
+
+    .fake-page {
+      position: fixed;
+      inset: 70px 0 0;
+      pointer-events: none;
+      opacity: .45;
+      background:
+        linear-gradient(#fff 0 110px, transparent 110px),
+        repeating-linear-gradient(180deg, transparent 0 88px, rgba(214, 216, 210, .55) 88px 89px);
+    }
+
+    .dialog {
+      position: relative;
+      z-index: 2;
+      width: min(720px, 100%);
+      max-height: calc(100vh - 126px);
+      overflow: hidden;
+      border: 1px solid rgba(213, 214, 208, .9);
+      border-radius: 26px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .dialog-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 25px 28px 19px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 { margin: 0; font-size: 23px; letter-spacing: -.02em; }
+    .dialog-head p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+    .close {
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 50%;
+      background: #f2f3ef;
+      cursor: pointer;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .dialog-body {
+      max-height: calc(100vh - 285px);
+      overflow-y: auto;
+      padding: 22px 28px 26px;
+    }
+
+    .field { display: grid; gap: 8px; }
+    .field label, .group-label { font-size: 13px; font-weight: 700; }
+    .optional { color: #899089; font-weight: 500; }
+    .hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+    .link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+    .control {
+      width: 100%;
+      min-height: 46px;
+      padding: 10px 13px;
+      border: 1px solid #cfd1ca;
+      border-radius: 12px;
+      outline: none;
+      color: var(--ink);
+      background: var(--field);
+      transition: border .15s, box-shadow .15s;
+    }
+    .control:focus { border-color: #7a857b; box-shadow: 0 0 0 3px rgba(101, 112, 103, .13); }
+    textarea.control { min-height: 82px; resize: vertical; }
+
+    .read-button {
+      min-width: 90px;
+      min-height: 46px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 12px;
+      color: #fff;
+      background: var(--brand);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .result {
+      display: none;
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid;
+      border-radius: 15px;
+    }
+    .result.visible { display: block; }
+    .result.success { border-color: #c5dacb; background: var(--ok-bg); }
+    .result.failure { border-color: #efcac4; background: var(--danger-bg); }
+    .result-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 750; }
+    .success .result-title { color: var(--ok); }
+    .failure .result-title { color: var(--danger); }
+    .result p { margin: 5px 0 0 26px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+    .preview {
+      display: none;
+      grid-template-columns: 76px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(85, 115, 95, .18);
+    }
+    .success .preview { display: grid; }
+    .cover {
+      width: 76px;
+      height: 76px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 12px;
+      color: #fff;
+      background: linear-gradient(145deg, #26352f, #8e6e67);
+      font-size: 28px;
+      font-weight: 900;
+    }
+    .preview strong { display: block; font-size: 15px; }
+    .preview span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .cpp-tag { align-self: start; padding: 5px 9px; border-radius: 999px; color: var(--ok); background: #fff; font-size: 11px; font-weight: 750; }
+
+    .divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 18px; color: #8a908a; font-size: 12px; }
+    .divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 14px; }
+    .span-2 { grid-column: span 2; }
+    .compact-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+    .image-box {
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 1px dashed #c8cbc3;
+      border-radius: 13px;
+      color: var(--muted);
+      background: var(--field);
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .dialog-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+      padding: 17px 28px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, .96);
+    }
+    .sync-note { max-width: 350px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .actions { display: flex; gap: 9px; }
+    .button {
+      min-height: 44px;
+      padding: 0 19px;
+      border-radius: 12px;
+      border: 1px solid #d1d3cc;
+      background: #fff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .button.primary { border-color: var(--brand); color: #fff; background: var(--brand); }
+
+    .toast {
+      position: fixed;
+      z-index: 30;
+      left: 50%;
+      bottom: 24px;
+      transform: translate(-50%, 16px);
+      padding: 11px 17px;
+      border-radius: 999px;
+      color: #fff;
+      background: #303733;
+      opacity: 0;
+      pointer-events: none;
+      transition: .2s ease;
+      font-size: 13px;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 680px) {
+      .prototype-bar { align-items: stretch; flex-direction: column; gap: 10px; padding: 12px; }
+      .prototype-title { display: none; }
+      .state-switcher { width: 100%; }
+      .state-button { flex: 1; padding: 0 8px; font-size: 12px; }
+      .fake-page { inset: 62px 0 0; }
+      .stage { align-items: end; min-height: calc(100vh - 62px); padding: 16px 0 0; }
+      .dialog { width: 100%; max-height: calc(100vh - 74px); border-radius: 24px 24px 0 0; }
+      .dialog-head { padding: 20px 18px 15px; }
+      h1 { font-size: 20px; }
+      .dialog-body { max-height: calc(100vh - 252px); padding: 18px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .span-2 { grid-column: span 1; }
+      .compact-grid { grid-template-columns: 1fr 1fr; }
+      .compact-grid .field:last-child { grid-column: span 2; }
+      .preview { grid-template-columns: 62px minmax(0, 1fr); }
+      .cover { width: 62px; height: 62px; }
+      .cpp-tag { display: none; }
+      .dialog-foot { padding: 13px 18px calc(13px + env(safe-area-inset-bottom)); }
+      .sync-note { display: none; }
+      .actions { width: 100%; }
+      .button { flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="prototype-bar">
+    <div class="prototype-title">
+      <strong>添加制品 · 交互原型</strong>
+      <span>切换查看三种使用状态</span>
+    </div>
+    <nav class="state-switcher" aria-label="原型状态">
+      <button class="state-button" data-state="manual" aria-selected="true">自行填写</button>
+      <button class="state-button" data-state="success" aria-selected="false">解析成功</button>
+      <button class="state-button" data-state="failure" aria-selected="false">解析失败</button>
+    </nav>
+  </header>
+
+  <div class="fake-page" aria-hidden="true"></div>
+  <main class="stage">
+    <section class="dialog" aria-label="添加制品弹窗">
+      <header class="dialog-head">
+        <div>
+          <h1>添加制品</h1>
+          <p>粘贴 CPP 链接自动补全，或者直接手动填写。</p>
+        </div>
+        <button class="close" aria-label="关闭">×</button>
+      </header>
+
+      <div class="dialog-body">
+        <div class="field">
+          <label for="cpp-link">CPP 制品链接 <span class="optional">（可选）</span></label>
+          <div class="link-row">
+            <input id="cpp-link" class="control" placeholder="粘贴 https://www.allcpp.cn/d/…" />
+            <button id="read-button" class="read-button">读取</button>
+          </div>
+          <p class="hint">只读取当前展会已经同步到本工具数据库的制品。</p>
+        </div>
+
+        <div id="result" class="result" role="status">
+          <div class="result-title"><span id="result-icon">✓</span><span id="result-title"></span></div>
+          <p id="result-message"></p>
+          <div class="preview">
+            <div class="cover">雨</div>
+            <div>
+              <strong>大雨将至</strong>
+              <span>作者：米洛- · 创064 · 热度 139</span>
+            </div>
+            <span class="cpp-tag">已关联 CPP</span>
+          </div>
+        </div>
+
+        <div class="divider">确认或补充制品信息</div>
+
+        <form id="item-form" class="form-grid">
+          <div class="field span-2">
+            <label for="product-name">制品名称 *</label>
+            <input id="product-name" class="control" placeholder="请输入制品名称" required />
+          </div>
+
+          <div class="field">
+            <label for="author">作者</label>
+            <input id="author" class="control" placeholder="作者名称" />
+          </div>
+          <div class="field">
+            <label for="booth">摊位号</label>
+            <input id="booth" class="control" placeholder="例如：壹A01 / 创064" />
+          </div>
+
+          <div class="field span-2">
+            <span class="group-label">购买设置</span>
+            <div class="compact-grid">
+              <div class="field">
+                <select id="type" class="control" aria-label="类型">
+                  <option value="paid">有料</option>
+                  <option value="free">无料</option>
+                </select>
+              </div>
+              <div class="field">
+                <select id="priority" class="control" aria-label="优先级">
+                  <option>P1</option><option>P2</option><option>P3</option><option>随缘</option>
+                </select>
+              </div>
+              <div class="field">
+                <input id="quantity" class="control" type="number" min="1" value="1" aria-label="数量" />
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="price">单价</label>
+            <input id="price" class="control" inputmode="decimal" placeholder="¥ 选填" />
+          </div>
+          <div class="field">
+            <label for="limit">限购数量</label>
+            <input id="limit" class="control" inputmode="numeric" placeholder="选填" />
+          </div>
+
+          <div class="field span-2">
+            <label for="open-info">开摊信息</label>
+            <input id="open-info" class="control" placeholder="开摊时间、领取方式等" />
+          </div>
+          <div class="field span-2">
+            <label for="note">备注</label>
+            <textarea id="note" class="control" placeholder="想提醒自己或协作者的信息"></textarea>
+          </div>
+          <div class="field span-2">
+            <span class="group-label">图片 <span class="optional">（可选）</span></span>
+            <div class="image-box">＋ 上传图片或粘贴截图</div>
+          </div>
+        </form>
+      </div>
+
+      <footer class="dialog-foot">
+        <span class="sync-note">关联 CPP 后，摊位号和热度可通过“拉取 CPP 最新数据”更新。</span>
+        <div class="actions">
+          <button class="button">取消</button>
+          <button id="submit-button" class="button primary">添加到 list</button>
+        </div>
+      </footer>
+    </section>
+  </main>
+  <div id="toast" class="toast">原型演示：已添加到 list</div>
+
+  <script>
+    const demos = {
+      manual: { link: "", result: null, name: "", author: "", booth: "", type: "paid", price: "", openInfo: "", note: "" },
+      success: {
+        link: "https://www.allcpp.cn/d/1592175.do#tabType=0",
+        result: "success",
+        name: "大雨将至",
+        author: "米洛-",
+        booth: "创064",
+        type: "free",
+        price: "",
+        openInfo: "仅供现场",
+        note: ""
+      },
+      failure: {
+        link: "https://www.allcpp.cn/d/9999999.do",
+        result: "failure",
+        name: "",
+        author: "",
+        booth: "",
+        type: "paid",
+        price: "",
+        openInfo: "",
+        note: ""
+      }
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+    const result = $("#result");
+
+    function showResult(kind) {
+      result.className = "result";
+      if (!kind) return;
+      result.classList.add("visible", kind);
+      $("#result-icon").textContent = kind === "success" ? "✓" : "!";
+      $("#result-title").textContent = kind === "success" ? "已从 CPP 数据库读取" : "没有找到对应制品";
+      $("#result-message").textContent = kind === "success"
+        ? "资料已自动填入，你可以继续修改后添加。"
+        : "当前展会数据库暂未收录该制品，你仍然可以在下方手动填写。";
+    }
+
+    function applyState(name) {
+      const state = demos[name];
+      document.querySelectorAll(".state-button").forEach((button) => {
+        button.setAttribute("aria-selected", button.dataset.state === name ? "true" : "false");
+      });
+      $("#cpp-link").value = state.link;
+      $("#product-name").value = state.name;
+      $("#author").value = state.author;
+      $("#booth").value = state.booth;
+      $("#type").value = state.type;
+      $("#price").value = state.price;
+      $("#open-info").value = state.openInfo;
+      $("#note").value = state.note;
+      showResult(state.result);
+    }
+
+    document.querySelectorAll(".state-button").forEach((button) => {
+      button.addEventListener("click", () => applyState(button.dataset.state));
+    });
+
+    $("#read-button").addEventListener("click", () => {
+      const link = $("#cpp-link").value.trim();
+      if (!link) return applyState("manual");
+      if (link.includes("1592175")) return applyState("success");
+      showResult("failure");
+    });
+
+    $("#cpp-link").addEventListener("paste", () => {
+      setTimeout(() => $("#read-button").click(), 120);
+    });
+
+    $("#submit-button").addEventListener("click", () => {
+      const toast = $("#toast");
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 1600);
+    });
+
+    applyState("manual");
+  </script>
+</body>
+</html>

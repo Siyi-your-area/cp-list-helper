@@ -13,7 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import type { WishItem } from "@/lib/types";
 import { getVisibleWishNote } from "@/lib/match-review";
-import { STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
+import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
 import {
   CPG_VENUE_ORDER,
   compareWishItemsByLocation,
@@ -168,7 +168,12 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
   const handleDrawerUpdate = (field: keyof WishItem, value: any) => {
     if (!drawerItem) return;
-    setDrawerItem((prev) => (prev && prev.id === drawerItem.id ? { ...prev, [field]: value } : prev));
+    const limitedValue = field === "openInfo" && typeof value === "string"
+      ? value.slice(0, OPEN_INFO_MAX_LENGTH)
+      : field === "note" && typeof value === "string"
+        ? value.slice(0, NOTE_MAX_LENGTH)
+        : value;
+    setDrawerItem((prev) => (prev && prev.id === drawerItem.id ? { ...prev, [field]: limitedValue } : prev));
   };
 
   const handleDrawerTypeChange = (type: "paid" | "free") => {
@@ -686,11 +691,31 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                 </div>
               </div>
 
+              {/* ---- 开摊信息：位于状态之后、备注之前 ---- */}
+              <div className="mb-4">
+                {drawerEditing ? (
+                  <EditField
+                    label="开摊信息"
+                    value={drawerItem.openInfo || ""}
+                    onChange={(value) => handleDrawerUpdate("openInfo", value)}
+                    multiline
+                    maxLength={OPEN_INFO_MAX_LENGTH}
+                  />
+                ) : (
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <div className="mb-1 text-xs text-slate-400">开摊信息</div>
+                    <div className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                      {drawerItem.openInfo || "-"}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* 编辑模式 vs 查看模式 */}
               {drawerEditing ? (
                 <div className="space-y-3 mb-4">
                   {drawerItem.type !== "free" && (
-                    <EditField label="备注" value={getVisibleWishNote(drawerItem.note)} onChange={(v) => handleDrawerUpdate("note", v)} multiline />
+                    <EditField label="备注" value={getVisibleWishNote(drawerItem.note)} onChange={(v) => handleDrawerUpdate("note", v)} multiline maxLength={NOTE_MAX_LENGTH} />
                   )}
                   <EditField label="制品名称" value={drawerItem.productName} onChange={(v) => handleDrawerUpdate("productName", v)} />
                   <EditField label="作者" value={drawerItem.author || ""} onChange={(v) => handleDrawerUpdate("author", v)} />
@@ -701,7 +726,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   {drawerItem.note && (
                     <div className="mb-4 p-3 bg-slate-50 rounded-lg">
                       <div className="text-xs text-slate-400 mb-1">备注</div>
-                      <div className="text-sm text-slate-700">{getVisibleWishNote(drawerItem.note)}</div>
+                      <div className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{getVisibleWishNote(drawerItem.note)}</div>
                     </div>
                   )}
                 </>
@@ -771,19 +796,25 @@ function EditField({
   onChange,
   multiline,
   type,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   multiline?: boolean;
   type?: string;
+  maxLength?: number;
 }) {
   return (
     <div>
-      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-slate-400">
+        <label>{label}</label>
+        {maxLength && <span>{value.length}/{maxLength}</span>}
+      </div>
       {multiline ? (
         <textarea
           value={value}
+          maxLength={maxLength}
           onChange={(e) => onChange(e.target.value)}
           rows={3}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -792,6 +823,7 @@ function EditField({
         <input
           type={type || "text"}
           value={value}
+          maxLength={maxLength}
           onChange={(e) => onChange(e.target.value)}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />

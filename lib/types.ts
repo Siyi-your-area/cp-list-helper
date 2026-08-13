@@ -130,6 +130,9 @@ export interface CPPDataItem {
  */
 export type Priority = "首摊" | "次摊" | "P1" | "P2" | "P3" | "随缘";
 
+export const OPEN_INFO_MAX_LENGTH = 50;
+export const NOTE_MAX_LENGTH = 200;
+
 /**
  * 匹配置信度
  */

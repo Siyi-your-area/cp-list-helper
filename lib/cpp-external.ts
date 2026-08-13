@@ -146,6 +146,16 @@ export function getCPPCookieHeader(): string {
   const environmentCookie = sanitizeCookieHeader(process.env.CPP_COOKIE || "");
   if (environmentCookie) return environmentCookie;
 
+  try {
+    const environmentCookieJson = process.env.CPP_COOKIE_JSON;
+    if (environmentCookieJson) {
+      const cookie = cookieHeaderFromJson(JSON.parse(environmentCookieJson));
+      if (cookie) return cookie;
+    }
+  } catch {
+    // Secret 不是有效 JSON 时继续尝试本地忽略文件。
+  }
+
   const localFiles = [
     {
       name: "cpp-search-request.txt",

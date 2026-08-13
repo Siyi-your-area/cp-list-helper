@@ -203,6 +203,7 @@ export async function createWishItem(
     product_name: item.productName,
     author: item.author || null,
     image_url: item.imageUrl || null,
+    ...(item.openInfo !== undefined ? { open_info: item.openInfo || null } : {}),
     item_type: item.type || "paid",
     status: item.status || "pending",
     priority: item.priority || null,
@@ -263,6 +264,7 @@ export async function createWishItems(
     product_name: item.productName,
     author: item.author || null,
     image_url: item.imageUrl || null,
+    ...(item.openInfo !== undefined ? { open_info: item.openInfo || null } : {}),
     item_type: item.type || "paid",
     status: item.status || "pending",
     priority: item.priority || null,
@@ -660,6 +662,7 @@ export function dbRowToWishItem(row: any): WishItem {
     productName: row.product_name || "",
     author: row.author || undefined,
     imageUrl: row.image_url || undefined,
+    openInfo: row.open_info || undefined,
     venue: getWishItemVenue({ boothNumber: row.booth_number || "" }),
     type: row.item_type || "paid",
     status: row.status || "pending",
@@ -681,6 +684,7 @@ function wishItemPatchToRow(item: Partial<WishItem>): Record<string, unknown> {
   if (item.productName !== undefined) row.product_name = item.productName;
   if (item.author !== undefined) row.author = item.author ?? null;
   if (item.imageUrl !== undefined) row.image_url = item.imageUrl ?? null;
+  if (item.openInfo !== undefined) row.open_info = item.openInfo ?? null;
   if (item.type !== undefined) row.item_type = item.type;
   if (item.status !== undefined) row.status = item.status;
   if (item.priority !== undefined) row.priority = item.priority ?? null;

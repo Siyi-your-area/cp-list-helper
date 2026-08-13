@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -27,10 +27,11 @@ import {
   ArrowsClockwise,
 } from "@phosphor-icons/react";
 import type { WishItem, MatchResult, MatchInput } from "@/lib/types";
-import { STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
+import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
 import { parseExcelFile } from "@/lib/excel-parser";
 import { useExhibitData } from "@/hooks/useExhibitData";
 import { MobileTableView } from "@/components/MobileTableView";
+import { AddWishItemDialog } from "@/components/AddWishItemDialog";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
 import { authFetch } from "@/lib/auth-client";
 import {
@@ -149,6 +150,7 @@ export default function ExhibitDetail() {
   const [searchKeyword, setSearchKeyword] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isAddItemDialogOpen, setIsAddItemDialogOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isMatching, setIsMatching] = useState(false);
   const [matchProgress, setMatchProgress] = useState("");
@@ -172,20 +174,32 @@ export default function ExhibitDetail() {
 
   // ---- 分享码 ----
   const [shareCode, setShareCode] = useState("");
+  const [shareCodeLoading, setShareCodeLoading] = useState(false);
+  const [shareCodeError, setShareCodeError] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const loadShareCode = useCallback(async () => {
+    setShareCodeLoading(true);
+    setShareCodeError(false);
+    try {
+      const response = await authFetch(`/api/share?eventId=${encodeURIComponent(eventId)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.code || data.code === "NEED_MIGRATION") {
+        throw new Error(data.error || "获取识别码失败");
+      }
+      setShareCode(data.code);
+    } catch {
+      setShareCode("");
+      setShareCodeError(true);
+    } finally {
+      setShareCodeLoading(false);
+    }
+  }, [eventId]);
 
   useEffect(() => {
     if (!membership) return;
-    // 页面加载时获取/生成分享码
-    authFetch(`/api/share?eventId=${encodeURIComponent(eventId)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.code && data.code !== "NEED_MIGRATION") {
-          setShareCode(data.code);
-        }
-      })
-      .catch(() => {}); // 静默失败
-  }, [eventId, membership]);
+    void loadShareCode();
+  }, [membership, loadShareCode]);
 
   useEffect(() => {
     if (!eventInfo?.cppEventId) return;
@@ -309,18 +323,13 @@ export default function ExhibitDetail() {
     });
   };
 
-  const handleAddItem = async () => {
-    await addItem({
-      boothNumber: "",
-      productName: "",
-      author: "",
-      venue: "",
-      status: "pending",
-      priority: "P1",
-    });
-    setTimeout(() => {
-      setCurrentPage(Math.ceil((items.length + 1) / PAGE_SIZE));
-    }, 100);
+  const handleAddItem = () => {
+    setIsAddItemDialogOpen(true);
+  };
+
+  const handleCreateItem = async (item: Omit<WishItem, "id">) => {
+    await addItem(item);
+    setCurrentPage(Math.max(1, Math.ceil((items.length + 1) / PAGE_SIZE)));
   };
 
   const handleUpdateItem = async (id: string, field: keyof WishItem, value: any) => {
@@ -341,7 +350,12 @@ export default function ExhibitDetail() {
   };
 
   const handleDraftItem = (id: string, field: keyof WishItem, value: any) => {
-    const updates: Partial<WishItem> = { [field]: value };
+    const limitedValue = field === "openInfo" && typeof value === "string"
+      ? value.slice(0, OPEN_INFO_MAX_LENGTH)
+      : field === "note" && typeof value === "string"
+        ? value.slice(0, NOTE_MAX_LENGTH)
+        : value;
+    const updates: Partial<WishItem> = { [field]: limitedValue };
     if (field === "type" && value === "free") {
       updates.status = "待领取";
       updates.price = undefined;
@@ -895,6 +909,21 @@ export default function ExhibitDetail() {
                 )}
               </button>
             )}
+            {!shareCode && shareCodeLoading && (
+              <span className="col-start-3 row-start-1 rounded-lg bg-slate-100 px-2.5 py-1 text-xs text-slate-500 sm:col-auto sm:row-auto sm:ml-2">
+                识别码加载中…
+              </span>
+            )}
+            {!shareCode && shareCodeError && (
+              <button
+                type="button"
+                onClick={() => void loadShareCode()}
+                className="col-start-3 row-start-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 sm:col-auto sm:row-auto sm:ml-2"
+                title="点击重新获取list识别码"
+              >
+                识别码加载失败 · 重试
+              </button>
+            )}
             <div className="col-start-3 row-start-2 flex items-center justify-self-end gap-1.5 sm:col-auto sm:row-auto sm:ml-auto sm:gap-2">
               <button
                 onClick={() => void handleToggleEditMode()}
@@ -1300,9 +1329,9 @@ export default function ExhibitDetail() {
                     {/* 开摊信息 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={item.openInfo || ""} onChange={(e) => handleDraftItem(item.id, "openInfo", e.target.value)} placeholder="开摊时间、限购等" className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={item.openInfo || ""} maxLength={OPEN_INFO_MAX_LENGTH} onChange={(e) => handleDraftItem(item.id, "openInfo", e.target.value)} placeholder="开摊时间、限购等" title={`${(item.openInfo || "").length}/${OPEN_INFO_MAX_LENGTH}`} className="w-40 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span className="text-slate-600">{item.openInfo || "-"}</span>
+                        <span className="block max-w-40 whitespace-pre-wrap break-words text-slate-600">{item.openInfo || "-"}</span>
                       )}
                     </Td>
                     {/* 类型 */}
@@ -1381,9 +1410,9 @@ export default function ExhibitDetail() {
                     {/* 备注 */}
                     <Td>
                       {editMode ? (
-                        <input type="text" value={getVisibleWishNote(item.note)} onChange={(e) => handleDraftItem(item.id, "note", e.target.value)} className="w-32 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
+                        <input type="text" value={getVisibleWishNote(item.note)} maxLength={NOTE_MAX_LENGTH} onChange={(e) => handleDraftItem(item.id, "note", e.target.value)} title={`${getVisibleWishNote(item.note).length}/${NOTE_MAX_LENGTH}`} className="w-48 px-2 py-1 border border-slate-300 rounded-lg text-sm" />
                       ) : (
-                        <span className="text-slate-600">{getVisibleWishNote(item.note) || "-"}</span>
+                        <span className="block max-w-48 whitespace-pre-wrap break-words text-slate-600">{getVisibleWishNote(item.note) || "-"}</span>
                       )}
                     </Td>
                     {/* 详情 */}
@@ -1484,6 +1513,27 @@ export default function ExhibitDetail() {
             </button>
           </div>
         </div>
+      )}
+
+      {editMode && (
+        <button
+          type="button"
+          onClick={handleAddItem}
+          className="fixed bottom-20 right-4 z-40 grid h-12 w-12 place-items-center rounded-full bg-slate-700 text-white shadow-lg transition hover:bg-slate-800 sm:hidden"
+          aria-label="添加制品"
+          title="添加制品"
+        >
+          <Plus className="h-5 w-5" />
+        </button>
+      )}
+
+      {isAddItemDialogOpen && (
+        <AddWishItemDialog
+          eventId={eventId}
+          existingItems={items}
+          onClose={() => setIsAddItemDialogOpen(false)}
+          onSubmit={handleCreateItem}
+        />
       )}
 
       {isReviewModalOpen && (

@@ -32,7 +32,7 @@ const GUIDE_FLOWS: Record<
         description: "在心愿单页面打开「选择活动」，筛选你想去的展会。",
       },
       {
-        image: "/guides/cpp-upload/pc-3.png",
+        image: "/guides/cpp-upload/pc-3.png?v=20260815",
         alt: "CPP 网页版选择全部并点击导出心愿单",
         title: "选择全部并导出",
         description:

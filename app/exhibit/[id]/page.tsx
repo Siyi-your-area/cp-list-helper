@@ -1221,7 +1221,7 @@ export default function ExhibitDetail() {
                   <Th width="70px">状态</Th>
                   <Th width="70px">单价</Th>
                   <Th width="50px">数量</Th>
-                  <Th width="70px">实付</Th>
+                  <Th width="70px">总价</Th>
                   <Th width="100px">备注</Th>
                   <Th width="90px">详情</Th>
                   {editMode && <Th stickyRight="0" width="50px">操作</Th>}
@@ -1395,7 +1395,7 @@ export default function ExhibitDetail() {
                         <span>{item.quantity ?? "-"}</span>
                       )}
                     </Td>
-                    {/* 实付 (自动 = 单价 × 数量) */}
+                    {/* 总价 (自动 = 单价 × 数量) */}
                     <Td>
                       {item.type === "free" ? "-" : (
                         <span>{item.price != null && item.quantity != null ? `¥${(item.price * item.quantity).toFixed(2)}` : "-"}</span>

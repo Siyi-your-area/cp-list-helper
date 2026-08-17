@@ -630,7 +630,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   </div>
                 </div>
               ) : (
-                /* 有料：单价 + 数量 + 实付 */
+                /* 有料：单价 + 数量 + 总价 */
                 <div className="flex items-end gap-3 mb-4">
                   <div className="flex-1 min-w-0">
                     <label className="block text-xs text-slate-400 mb-1">单价</label>
@@ -668,7 +668,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                     )}
                   </div>
                   <div className="w-24 flex-shrink-0">
-                    <label className="block text-xs text-slate-400 mb-1">实付</label>
+                    <label className="block text-xs text-slate-400 mb-1">总价</label>
                     <div className="px-3 py-2 text-sm font-bold text-indigo-600">
                       {drawerItem.price != null && drawerItem.quantity != null
                         ? `¥${(drawerItem.price * drawerItem.quantity).toFixed(2)}`

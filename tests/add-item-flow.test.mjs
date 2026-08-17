@@ -94,6 +94,15 @@ test("添加弹窗支持链接自动填充、失败后手填和保存关联", ()
   assert.match(dialog, /status:\s*type === "free" \? "待领取" : "pending"/);
 });
 
+test("添加制品移除限购数量并保存最多 50 字的开摊信息", () => {
+  const dialog = read("components/AddWishItemDialog.tsx");
+  assert.doesNotMatch(dialog, /限购数量|purchaseLimit|parsedLimit/);
+  assert.match(dialog, /OPEN_INFO_MAX_LENGTH/);
+  assert.match(dialog, /maxLength=\{OPEN_INFO_MAX_LENGTH\}/);
+  assert.match(dialog, /openInfo:\s*openInfo\.trim\(\) \|\| undefined/);
+  assert.match(dialog, /开摊时间、限购等/);
+});
+
 test("手机版在状态之后、备注之前展示并编辑开摊信息", () => {
   const mobile = read("components/MobileTableView.tsx");
   const statusIndex = mobile.indexOf("状态切换按钮");

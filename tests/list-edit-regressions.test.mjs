@@ -87,3 +87,23 @@ test("mobile list displays priority and the drawer can edit it", () => {
   assert.match(source, /handleDrawerUpdate\("priority", priority\)/);
   assert.match(source, /PRIORITY_COLOR\[drawerItem\.priority \|\| "随缘"\]/);
 });
+
+test("mobile list groups booths, filters pending purchase or pickup, and completes a booth", () => {
+  const source = read("components/MobileTableView.tsx");
+  const page = read("app/exhibit/[id]/page.tsx");
+
+  assert.match(source, /只看未买\/取/);
+  assert.match(source, /item\.status === "pending" \|\| item\.status === "待领取"/);
+  assert.match(source, /const boothGroups = useMemo/);
+  assert.match(source, /group\.items\.length > 1/);
+  assert.match(source, /本摊完成/);
+  assert.doesNotMatch(source, /本摊全部完成/);
+  assert.match(source, /space-y-2 bg-slate-100 py-2/);
+  assert.match(source, /mx-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm/);
+  assert.match(source, /flex h-9 items-center/);
+  assert.match(source, /rounded-full/);
+  assert.match(source, /status: item\.type === "free" \? "已领取" : "purchased"/);
+  assert.match(source, /await onSaveItem\(/);
+  assert.match(page, /添加制品/);
+  assert.doesNotMatch(page, />\s*添加新行\s*</);
+});

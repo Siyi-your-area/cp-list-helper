@@ -1226,7 +1226,7 @@ export default function ExhibitDetail() {
                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors text-sm flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
-                添加新行
+                添加制品
               </button>
               <button
                 onClick={handleBatchDelete}

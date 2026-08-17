@@ -91,6 +91,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
   const [quantityInput, setQuantityInput] = useState("1");
   const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+  const [completingBoothKey, setCompletingBoothKey] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const swipeStartRef = useRef<{ id: string; x: number; y: number } | null>(null);
 
@@ -112,10 +113,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
     // 筛选
     if (filterMode === "unpurchased") {
-      result = result.filter((item) => {
-        if (item.type === "free") return item.status !== "已领取";
-        return item.status !== "purchased" && item.status !== "soldout";
-      });
+      result = result.filter((item) => item.status === "pending" || item.status === "待领取");
     }
 
     // 区域筛选
@@ -144,6 +142,31 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
     return result;
   }, [items, searchQuery, filterMode, selectedArea, sortMode]);
+
+  const boothGroups = useMemo(() => {
+    const groups: Array<{
+      key: string;
+      venue: string;
+      boothNumber: string;
+      items: WishItem[];
+    }> = [];
+    const groupsByKey = new Map<string, (typeof groups)[number]>();
+
+    processedItems.forEach((item) => {
+      const boothNumber = item.boothNumber.trim();
+      const venue = getArea(boothNumber);
+      const key = boothNumber ? `${venue}:${boothNumber}` : `unassigned:${item.id}`;
+      let group = groupsByKey.get(key);
+      if (!group) {
+        group = { key, venue, boothNumber, items: [] };
+        groupsByKey.set(key, group);
+        groups.push(group);
+      }
+      group.items.push(item);
+    });
+
+    return groups;
+  }, [processedItems]);
 
   // ---- 区域列表 ----
 
@@ -176,6 +199,27 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
         ? value.slice(0, NOTE_MAX_LENGTH)
         : value;
     setDrawerItem((prev) => (prev && prev.id === drawerItem.id ? { ...prev, [field]: limitedValue } : prev));
+  };
+
+  const handleCompleteBooth = async (groupKey: string, groupItems: WishItem[]) => {
+    const pendingItems = groupItems.filter(
+      (item) => item.status === "pending" || item.status === "待领取"
+    );
+    if (pendingItems.length === 0 || completingBoothKey) return;
+
+    setCompletingBoothKey(groupKey);
+    try {
+      for (const item of pendingItems) {
+        await onSaveItem({
+          ...item,
+          status: item.type === "free" ? "已领取" : "purchased",
+        });
+      }
+    } catch (error) {
+      alert("本摊标记失败: " + (error as Error).message);
+    } finally {
+      setCompletingBoothKey(null);
+    }
   };
 
   const handleDrawerTypeChange = (type: "paid" | "free") => {
@@ -313,7 +357,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
               : "bg-slate-100 text-slate-600"
           }`}
         >
-          {filterMode === "unpurchased" ? "✓ 只看未买" : "只看未买"}
+          {filterMode === "unpurchased" ? "✓ 只看未买/取" : "只看未买/取"}
         </button>
         <div className="relative">
           <button
@@ -370,13 +414,52 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
             {items.length === 0 ? "暂无list条目" : "没有匹配的结果"}
           </div>
         ) : (
-          <div>
-            {processedItems.map((item) => (
+          <div className="space-y-2 bg-slate-100 py-2">
+            {boothGroups.map((group) => {
+              const pendingCount = group.items.filter(
+                (item) => item.status === "pending" || item.status === "待领取"
+              ).length;
+              return (
+              <section
+                key={group.key}
+                className="mx-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              >
+                {group.items.length > 1 && (
+                  <div className="flex h-9 items-center justify-between gap-2 border-b border-slate-100 bg-white px-3">
+                    <div className="min-w-0 truncate">
+                      <span className="text-xs font-semibold text-slate-700">
+                        {group.boothNumber
+                          ? group.venue === "其他"
+                            ? group.boothNumber
+                            : `${group.venue}馆 · ${group.boothNumber}`
+                          : "未匹配摊位"}
+                      </span>
+                      <span className="ml-1.5 text-[11px] text-slate-400">{group.items.length} 件</span>
+                    </div>
+                    {group.boothNumber && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCompleteBooth(group.key, group.items)}
+                        disabled={pendingCount === 0 || completingBoothKey !== null}
+                        className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap ${
+                          getStatusColor(pendingCount === 0 ? "purchased" : "pending")
+                        } disabled:opacity-60`}
+                      >
+                        {completingBoothKey === group.key
+                          ? "标记中…"
+                          : pendingCount === 0
+                            ? "已完成"
+                            : "本摊完成"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {group.items.map((item) => (
               <div
                 key={item.id}
                 data-mobile-wish-row
                 data-item-id={item.id}
-                className="relative overflow-hidden border-b border-slate-100"
+                className="relative overflow-hidden border-b border-slate-100 last:border-b-0"
               >
                 {swipedItemId === item.id && (
                   <button
@@ -465,7 +548,10 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                 </div>
                 </div>
               </div>
-            ))}
+                ))}
+              </section>
+              );
+            })}
           </div>
         )}
       </div>
@@ -477,8 +563,8 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
           {filterMode === "unpurchased" || selectedArea ? ` / 总计 ${items.length} 件` : ""}
         </span>
         <span>
-          已买 {items.filter((i) => i.status === "purchased" || i.status === "已领取").length} ·
-          待买 {items.filter((i) => i.status === "pending" || i.status === "待领取").length}
+          已买/取 {items.filter((i) => i.status === "purchased" || i.status === "已领取").length} ·
+          待买/取 {items.filter((i) => i.status === "pending" || i.status === "待领取").length}
         </span>
       </div>
 

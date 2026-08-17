@@ -12,7 +12,7 @@ import {
 import { authFetch } from "@/lib/auth-client";
 import { parseCPPProductReference } from "@/lib/cpp-link";
 import { detectWishItemType } from "@/lib/cpp-item-mapping";
-import { NOTE_MAX_LENGTH, type NormalizedCPPItem, type Priority, type WishItem } from "@/lib/types";
+import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, type NormalizedCPPItem, type Priority, type WishItem } from "@/lib/types";
 import { getWishItemVenue } from "@/lib/wish-item-sort";
 
 type NewWishItem = Omit<WishItem, "id">;
@@ -73,7 +73,7 @@ export function AddWishItemDialog({
   const [priority, setPriority] = useState<Priority>("随缘");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [purchaseLimit, setPurchaseLimit] = useState("");
+  const [openInfo, setOpenInfo] = useState("");
   const [note, setNote] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -180,7 +180,6 @@ export function AddWishItemDialog({
 
     const parsedPrice = price.trim() === "" ? undefined : Number(price);
     const parsedQuantity = Math.max(1, Number(quantity) || 1);
-    const parsedLimit = purchaseLimit.trim() === "" ? undefined : Math.max(1, Number(purchaseLimit) || 1);
     if (parsedPrice !== undefined && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) {
       setLookupState("error");
       setLookupMessage("单价需要填写为不小于 0 的数字。");
@@ -200,7 +199,7 @@ export function AddWishItemDialog({
         priority,
         price: parsedPrice,
         quantity: parsedQuantity,
-        purchaseLimit: parsedLimit,
+        openInfo: openInfo.trim() || undefined,
         note: note.trim() || undefined,
         hotCount: linkedCPPItem?.hotCount ?? 0,
         description: linkedCPPItem?.description || "",
@@ -363,9 +362,10 @@ export function AddWishItemDialog({
               <span className="mb-2 block text-sm font-semibold text-slate-800">数量</span>
               <input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" min="1" className={fieldClass} />
             </label>
-            <label>
-              <span className="mb-2 block text-sm font-semibold text-slate-800">限购数量</span>
-              <input value={purchaseLimit} onChange={(event) => setPurchaseLimit(event.target.value)} type="number" min="1" placeholder="选填" className={fieldClass} />
+            <label className="sm:col-span-2">
+              <span className="mb-2 block text-sm font-semibold text-slate-800">开摊信息</span>
+              <textarea value={openInfo} maxLength={OPEN_INFO_MAX_LENGTH} onChange={(event) => setOpenInfo(event.target.value)} placeholder="开摊时间、限购等" className={`${fieldClass} min-h-20 resize-y`} />
+              <span className="mt-1 block text-right text-xs text-slate-400">{openInfo.length}/{OPEN_INFO_MAX_LENGTH}</span>
             </label>
             <label className="sm:col-span-2">
               <span className="mb-2 block text-sm font-semibold text-slate-800">备注</span>

@@ -62,6 +62,7 @@ test("image downloads run concurrently, preserve order, and isolate failures", a
   const { loadExcelImagesConcurrently } = loadImagePool();
   let active = 0;
   let maxActive = 0;
+  const progress = [];
   const values = await loadExcelImagesConcurrently(
     ["a", "b", "bad", "c", "", "d"],
     async (value) => {
@@ -72,10 +73,23 @@ test("image downloads run concurrently, preserve order, and isolate failures", a
       if (value === "bad") throw new Error("image failed");
       return `image:${value}`;
     },
-    3
+    3,
+    15_000,
+    (completed, total) => progress.push([completed, total])
   );
   assert.ok(maxActive > 1 && maxActive <= 3);
   assert.deepEqual(values, ["image:a", "image:b", null, "image:c", null, "image:d"]);
+  assert.deepEqual(progress.at(-1), [6, 6]);
+});
+
+test("export uses total-price wording, shows progress, and appends list summary", () => {
+  const source = read("app/exhibit/[id]/page.tsx");
+  assert.match(source, /header: "总价", key: "total"/);
+  assert.match(source, /因导出内容含有图片，导出时间较长，请耐心等待/);
+  assert.match(source, /calculateListSummary\(items\)/);
+  for (const label of ["总展品", "待购买", "已购买", "已售罄", "待领取", "已领取", "实际花费"]) {
+    assert.match(source, new RegExp(`\\["${label}", summary\\.`));
+  }
 });
 
 test("a stalled image times out without blocking the complete export", async () => {

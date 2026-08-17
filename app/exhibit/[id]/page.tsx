@@ -48,6 +48,7 @@ import {
   normalizeWishItemLocation,
 } from "@/lib/wish-item-sort";
 import { loadExcelImagesConcurrently } from "@/lib/excel-image-loader";
+import { calculateListSummary } from "@/lib/list-summary";
 
 const PAGE_SIZE = 100;
 
@@ -161,6 +162,8 @@ export default function ExhibitDetail() {
   const [resolvingReviews, setResolvingReviews] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportStage, setExportStage] = useState("");
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const dirtyItemIdsRef = useRef<Set<string>>(new Set());
   const [savingEdits, setSavingEdits] = useState(false);
@@ -701,10 +704,13 @@ export default function ExhibitDetail() {
 
   const handleExport = async () => {
     setExporting(true);
+    setExportProgress(5);
+    setExportStage("正在准备导出内容");
     try {
       const ExcelJS = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("list");
+      const summary = calculateListSummary(items);
 
       worksheet.columns = [
         { header: "场馆", key: "venue", width: 8 },
@@ -718,7 +724,7 @@ export default function ExhibitDetail() {
         { header: "状态", key: "status", width: 12 },
         { header: "单价", key: "price", width: 10 },
         { header: "数量", key: "quantity", width: 8 },
-        { header: "实付", key: "total", width: 10 },
+        { header: "总价", key: "total", width: 10 },
         { header: "备注", key: "note", width: 18 },
         { header: "详情", key: "description", width: 40 },
       ];
@@ -726,9 +732,17 @@ export default function ExhibitDetail() {
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).height = 22;
 
+      setExportProgress(15);
+      setExportStage(items.length > 0 ? `正在处理图片 0/${items.length}` : "正在生成 Excel 文件");
       const excelImages = await loadExcelImagesConcurrently(
         items.map((item) => item.imageUrl || ""),
-        imageUrlToExcelImage
+        imageUrlToExcelImage,
+        6,
+        15_000,
+        (completed, total) => {
+          setExportProgress(15 + Math.round((completed / Math.max(1, total)) * 65));
+          setExportStage(`正在处理图片 ${completed}/${total}`);
+        }
       );
 
       items.forEach((item, index) => {
@@ -760,10 +774,36 @@ export default function ExhibitDetail() {
         }
       });
 
+      worksheet.addRow([]);
+      const summaryTitleRow = worksheet.addRow(["汇总"]);
+      worksheet.mergeCells(summaryTitleRow.number, 1, summaryTitleRow.number, 2);
+      summaryTitleRow.font = { bold: true };
+      summaryTitleRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF1F5F9" },
+      };
+      const summaryRows: Array<[string, number]> = [
+        ["总展品", summary.total],
+        ["待购买", summary.pending],
+        ["已购买", summary.purchased],
+        ["已售罄", summary.soldout],
+        ["待领取", summary.pendingPickup],
+        ["已领取", summary.received],
+        ["实际花费", summary.actualCost],
+      ];
+      summaryRows.forEach(([label, value]) => {
+        const row = worksheet.addRow([label, value]);
+        row.getCell(1).font = { bold: true };
+        if (label === "实际花费") row.getCell(2).numFmt = '¥0.00';
+      });
+
       worksheet.eachRow((row) => {
         row.alignment = { vertical: "middle", wrapText: true };
       });
 
+      setExportProgress(85);
+      setExportStage("正在生成 Excel 文件");
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -773,14 +813,19 @@ export default function ExhibitDetail() {
       link.href = url;
       link.download = `${eventInfo?.name || eventId}_list.xlsx`;
       document.body.appendChild(link);
+      setExportProgress(95);
+      setExportStage("正在下载文件");
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      setExportProgress(100);
     } catch (error) {
       console.error("导出失败:", error);
       alert("导出失败: " + (error as Error).message);
     } finally {
       setExporting(false);
+      setExportProgress(0);
+      setExportStage("");
     }
   };
 
@@ -1665,6 +1710,24 @@ export default function ExhibitDetail() {
                 {detailItem.description}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {exporting && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="导出进度">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+              <div>
+                <h2 className="font-display text-lg font-bold text-slate-900">正在导出 Excel</h2>
+                <p className="mt-0.5 text-sm text-slate-500">{exportStage}</p>
+              </div>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100" aria-label={`导出进度 ${exportProgress}%`}>
+              <div className="h-full rounded-full bg-indigo-600 transition-all duration-300" style={{ width: `${exportProgress}%` }} />
+            </div>
+            <p className="mt-4 text-sm leading-6 text-slate-600">因导出内容含有图片，导出时间较长，请耐心等待&gt;&lt;</p>
           </div>
         </div>
       )}

@@ -10,13 +10,40 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { authFetch } from "@/lib/auth-client";
-import { parseCPPProductLink } from "@/lib/cpp-link";
+import { parseCPPProductReference } from "@/lib/cpp-link";
 import { detectWishItemType } from "@/lib/cpp-item-mapping";
 import { NOTE_MAX_LENGTH, type NormalizedCPPItem, type Priority, type WishItem } from "@/lib/types";
 import { getWishItemVenue } from "@/lib/wish-item-sort";
 
 type NewWishItem = Omit<WishItem, "id">;
 type LookupState = "idle" | "loading" | "success" | "not-found" | "error";
+type CPPReferenceMode = "web" | "short" | "did";
+
+const CPP_REFERENCE_MODES: Array<{
+  value: CPPReferenceMode;
+  label: string;
+  placeholder: string;
+  description: string;
+}> = [
+  {
+    value: "web",
+    label: "CPP网页链接",
+    placeholder: "https://www.allcpp.cn/d/1751339.do",
+    description: "CPP 网页复制的完整制品链接，粘贴此处",
+  },
+  {
+    value: "short",
+    label: "CPP手机短链",
+    placeholder: "https://icp.red/dN59gcZC9",
+    description: "CPP制品页-分享-复制链接，粘贴此处",
+  },
+  {
+    value: "did",
+    label: "CPP DID",
+    placeholder: "例如：1751339",
+    description: "CPP制品页-分享-复制DID，粘贴此处",
+  },
+];
 
 interface AddWishItemDialogProps {
   eventId: string;
@@ -35,6 +62,7 @@ export function AddWishItemDialog({
   onSubmit,
 }: AddWishItemDialogProps) {
   const [cppUrl, setCppUrl] = useState("");
+  const [referenceMode, setReferenceMode] = useState<CPPReferenceMode>("web");
   const [lookupState, setLookupState] = useState<LookupState>("idle");
   const [lookupMessage, setLookupMessage] = useState("");
   const [linkedCPPItem, setLinkedCPPItem] = useState<NormalizedCPPItem | null>(null);
@@ -71,10 +99,11 @@ export function AddWishItemDialog({
 
   const lookupCPPItem = async (value = cppUrl) => {
     const normalizedUrl = value.trim();
-    if (!parseCPPProductLink(normalizedUrl)) {
+    const reference = parseCPPProductReference(normalizedUrl);
+    if (!reference) {
       setLinkedCPPItem(null);
       setLookupState("error");
-      setLookupMessage("不是有效的 CPP 制品链接，请检查后重试。");
+      setLookupMessage("不是有效的 CPP 网页链接、手机短链或 DID，请检查后重试。");
       return;
     }
 
@@ -85,7 +114,7 @@ export function AddWishItemDialog({
       const response = await authFetch("/api/cpp/item-lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, cppUrl: normalizedUrl }),
+        body: JSON.stringify({ eventId, cppReference: normalizedUrl }),
       });
       const data = await response.json().catch(() => ({}));
       if (sequence !== lookupSequenceRef.current) return;
@@ -112,8 +141,12 @@ export function AddWishItemDialog({
     if (!pasted) return;
     event.preventDefault();
     setCppUrl(pasted);
+    const reference = parseCPPProductReference(pasted);
+    if (reference) setReferenceMode(reference.kind);
     window.setTimeout(() => void lookupCPPItem(pasted), 0);
   };
+
+  const activeReferenceMode = CPP_REFERENCE_MODES.find((mode) => mode.value === referenceMode)!;
 
   const handleImageFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -209,8 +242,32 @@ export function AddWishItemDialog({
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-7">
           <div>
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="CPP 制品识别方式">
+              {CPP_REFERENCE_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={referenceMode === mode.value}
+                  onClick={() => {
+                    setReferenceMode(mode.value);
+                    setCppUrl("");
+                    setLinkedCPPItem(null);
+                    setLookupState("idle");
+                    setLookupMessage("");
+                  }}
+                  className={`min-h-11 rounded-lg px-2 py-2 text-xs font-medium transition sm:text-sm ${
+                    referenceMode === mode.value
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
             <label htmlFor="cpp-item-url" className="mb-2 block text-sm font-semibold text-slate-800">
-              CPP 制品链接 <span className="font-normal text-slate-400">（可选）</span>
+              {activeReferenceMode.label} <span className="font-normal text-slate-400">（可选）</span>
             </label>
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <div className="relative">
@@ -226,7 +283,8 @@ export function AddWishItemDialog({
                     }
                   }}
                   onPaste={handlePasteLink}
-                  placeholder="粘贴 https://www.allcpp.cn/d/…"
+                  inputMode={referenceMode === "did" ? "numeric" : "url"}
+                  placeholder={activeReferenceMode.placeholder}
                   className={`${fieldClass} pl-9`}
                 />
               </div>
@@ -234,7 +292,8 @@ export function AddWishItemDialog({
                 {lookupState === "loading" ? <SpinnerGap className="h-4 w-4 animate-spin" /> : "读取"}
               </button>
             </div>
-            <p className="mt-2 text-xs leading-5 text-slate-500">只读取当前展会已经同步到本工具数据库的制品。</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">{activeReferenceMode.description}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">只读取当前展会已经同步到本工具数据库的制品。</p>
           </div>
 
           {lookupState !== "idle" && lookupState !== "loading" && (

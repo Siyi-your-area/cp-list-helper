@@ -247,7 +247,7 @@ export default function Home() {
         alert(`list已创建，但 CPP 心愿单导入失败：${importError.message}`);
       } else {
         setCreateStage("正在打开 list 详情");
-        router.push(`/exhibit/${listId}`);
+        router.push(`/exhibit/${listId}?edit=1`);
         closeCreateModal();
       }
     } catch (error: any) {

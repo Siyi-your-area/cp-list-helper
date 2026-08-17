@@ -10,11 +10,7 @@ import {
   UploadSimple,
   FileArrowDown,
   Package,
-  Clock,
-  ShoppingBag,
   Flame,
-  Gift,
-  Wallet,
   MagnifyingGlass,
   X,
   ImageBroken,
@@ -32,6 +28,7 @@ import { parseExcelFile } from "@/lib/excel-parser";
 import { useExhibitData } from "@/hooks/useExhibitData";
 import { MobileTableView } from "@/components/MobileTableView";
 import { AddWishItemDialog } from "@/components/AddWishItemDialog";
+import { ListSummaryBar } from "@/components/ListSummaryBar";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
 import { authFetch } from "@/lib/auth-client";
 import {
@@ -171,6 +168,19 @@ export default function ExhibitDetail() {
   const [syncingCPPData, setSyncingCPPData] = useState(false);
   const [cppSyncMessage, setCppSyncMessage] = useState("");
   const [isCppSyncModalOpen, setIsCppSyncModalOpen] = useState(false);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("edit") !== "1") return;
+
+    setEditMode(true);
+    url.searchParams.delete("edit");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`
+    );
+  }, []);
 
   // ---- 分享码 ----
   const [shareCode, setShareCode] = useState("");
@@ -820,25 +830,6 @@ export default function ExhibitDetail() {
 
   const totalPages = Math.ceil(flattenedItems.length / PAGE_SIZE);
 
-  const stats = useMemo(() => {
-    return {
-      total: items.length,
-      purchased: items.filter((i) => i.status === "purchased").length,
-      soldout: items.filter((i) => i.status === "soldout").length,
-      pending: items.filter((i) => i.status === "pending" || i.status === "待领取").length,
-      free: items.filter((i) => i.type === "free").length,
-      totalSpent: items.reduce((sum, i) => {
-        // 已购买/已领取的才计入花费
-        if (i.status === "purchased" || i.status === "已领取") {
-          const price = i.price ?? 0;
-          const qty = i.quantity ?? 1;
-          return sum + price * qty;
-        }
-        return sum;
-      }, 0),
-    };
-  }, [items]);
-
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">加载中...</div>;
   }
@@ -932,7 +923,9 @@ export default function ExhibitDetail() {
                 onClick={() => void handleToggleEditMode()}
                 disabled={savingEdits}
                 className={`order-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-colors sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm ${
-                  editMode ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  editMode
+                    ? "bg-amber-500 text-white shadow-md ring-2 ring-amber-200 hover:bg-amber-600"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
                 aria-label={editMode ? "保存并退出" : "编辑模式"}
                 title={editMode ? "保存并退出" : "编辑模式"}
@@ -1108,27 +1101,25 @@ export default function ExhibitDetail() {
 
       {/* Main content area - fills remaining height */}
       {/* 手机端视图 */}
-      <div className="md:hidden flex-1 min-h-0">
-        <MobileTableView
-          items={items}
-          onUpdateItem={handleUpdateItem}
-          onSaveItem={handleSaveMobileItem}
-          onRemoveItem={handleRemoveItem}
-        />
+      <div className="md:hidden flex flex-1 min-h-0 flex-col">
+        <div className="shrink-0 px-3 pt-3">
+          <ListSummaryBar items={items} />
+        </div>
+        <div className="min-h-0 flex-1">
+          <MobileTableView
+            items={items}
+            onUpdateItem={handleUpdateItem}
+            onSaveItem={handleSaveMobileItem}
+            onRemoveItem={handleRemoveItem}
+          />
+        </div>
       </div>
 
       {/* 桌面端视图 */}
       <div className="hidden md:flex flex-1 min-h-0 flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8">
         {/* Stats */}
         <div className="shrink-0 pt-6 pb-3">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <StatCard icon={Package} label="总展品" value={stats.total} color="slate" />
-            <StatCard icon={Clock} label="待购买/领取" value={stats.pending} color="amber" />
-            <StatCard icon={ShoppingBag} label="已购买" value={stats.purchased} color="emerald" />
-            <StatCard icon={Flame} label="已售罄" value={stats.soldout} color="rose" />
-            <StatCard icon={Gift} label="无料" value={stats.free} color="indigo" />
-            <StatCard icon={Wallet} label="总花费" value={`¥${stats.totalSpent.toFixed(2)}`} color="violet" />
-          </div>
+          <ListSummaryBar items={items} />
         </div>
 
         {/* Search + Sort */}
@@ -1752,21 +1743,6 @@ export default function ExhibitDetail() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ---- 小组件 ----
-
-function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: any; color: string }) {
-  const colorClass = `text-${color}-600`;
-  return (
-    <div className="bg-white rounded-xl p-4 border border-slate-200">
-      <div className={`flex items-center gap-1.5 ${colorClass} text-xs mb-2`}>
-        <Icon className="w-3.5 h-3.5" />
-        <span>{label}</span>
-      </div>
-      <div className={`text-2xl font-bold ${colorClass} font-display`}>{value}</div>
     </div>
   );
 }

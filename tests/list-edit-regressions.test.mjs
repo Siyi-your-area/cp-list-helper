@@ -65,3 +65,25 @@ test("free items keep the note editor available", () => {
   assert.match(source, /<EditField label="备注"[\s\S]{0,250}handleDrawerUpdate\("note", v\)/);
   assert.doesNotMatch(source, /drawerItem\.type !== "free"\s*&&\s*\([\s\S]{0,300}<EditField label="备注"/);
 });
+
+test("new lists enter edit mode once and emphasize the save action", () => {
+  const home = read("app/page.tsx");
+  const detail = read("app/exhibit/[id]/page.tsx");
+
+  assert.match(home, /router\.push\(`\/exhibit\/\$\{listId\}\?edit=1`\)/);
+  assert.match(home, /router\.push\(`\/exhibit\/\$\{data\.eventId\}`\)/);
+  assert.match(detail, /url\.searchParams\.get\("edit"\) !== "1"/);
+  assert.match(detail, /setEditMode\(true\);[\s\S]{0,120}url\.searchParams\.delete\("edit"\)/);
+  assert.match(detail, /bg-amber-500 text-white shadow-md ring-2 ring-amber-200/);
+});
+
+test("mobile list displays priority and the drawer can edit it", () => {
+  const source = read("components/MobileTableView.tsx");
+
+  assert.match(source, /const PRIORITY_OPTIONS: Priority\[\] = \["首摊", "次摊", "P1", "P2", "P3", "随缘"\]/);
+  assert.match(source, /PRIORITY_COLOR\[item\.priority \|\| "随缘"\]/);
+  assert.match(source, /\{item\.priority \|\| "随缘"\}/);
+  assert.match(source, /PRIORITY_OPTIONS\.map\(\(priority\) =>/);
+  assert.match(source, /handleDrawerUpdate\("priority", priority\)/);
+  assert.match(source, /PRIORITY_COLOR\[drawerItem\.priority \|\| "随缘"\]/);
+});

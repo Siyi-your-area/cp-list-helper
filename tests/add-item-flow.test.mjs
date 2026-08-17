@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseCPPProductLink } from "../lib/cpp-link.ts";
+import { parseCPPProductLink, parseCPPProductReference } from "../lib/cpp-link.ts";
+import { resolveCPPProductReference } from "../lib/cpp-reference-server.ts";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -16,6 +17,43 @@ test("CPP 制品链接只接受 allcpp 官方详情页", () => {
   assert.equal(parseCPPProductLink("ftp://www.allcpp.cn/d/123.do"), null);
   assert.equal(parseCPPProductLink("https://www.allcpp.cn/d/not-a-number.do"), null);
   assert.equal(parseCPPProductLink("https://www.allcpp.cn/d/0.do"), null);
+});
+
+test("新增制品可识别网页链接、手机短链和纯 DID", () => {
+  assert.deepEqual(parseCPPProductReference("1751339"), {
+    kind: "did",
+    doujinshiId: 1751339,
+  });
+  assert.deepEqual(
+    parseCPPProductReference("https://www.allcpp.cn/d/1751339.do#tabType=0"),
+    { kind: "web", doujinshiId: 1751339 }
+  );
+  assert.deepEqual(parseCPPProductReference("https://icp.red/dN59gcZC9"), {
+    kind: "short",
+    url: "https://icp.red/dN59gcZC9",
+  });
+  assert.equal(parseCPPProductReference("https://example.com/dN59gcZC9"), null);
+  assert.equal(parseCPPProductReference("-1"), null);
+});
+
+test("手机短链只沿受信任跳转解析为 DID", async () => {
+  const resolved = await resolveCPPProductReference(
+    "https://icp.red/dN59gcZC9",
+    async () => new Response(null, {
+      status: 302,
+      headers: { location: "http://www.allcpp.cn/d/1751339.do" },
+    })
+  );
+  assert.equal(resolved, 1751339);
+
+  const rejected = await resolveCPPProductReference(
+    "https://icp.red/dN59gcZC9",
+    async () => new Response(null, {
+      status: 302,
+      headers: { location: "https://evil.example/d/1751339.do" },
+    })
+  );
+  assert.equal(rejected, null);
 });
 
 test("单条链接先查当前 list 对应数据库，仅在详情为空时补读 CPP 详情", () => {
@@ -42,6 +80,12 @@ test("添加弹窗支持链接自动填充、失败后手填和保存关联", ()
   assert.match(dialog, /useState<Priority>\("随缘"\)/);
   assert.match(dialog, /maxLength=\{NOTE_MAX_LENGTH\}/);
   assert.match(dialog, /onPaste=\{handlePasteLink\}/);
+  assert.match(dialog, /CPP网页链接/);
+  assert.match(dialog, /CPP手机短链/);
+  assert.match(dialog, /CPP DID/);
+  assert.match(dialog, /CPP 网页复制的完整制品链接，粘贴此处/);
+  assert.match(dialog, /CPP制品页-分享-复制链接，粘贴此处/);
+  assert.match(dialog, /CPP制品页-分享-复制DID，粘贴此处/);
   assert.match(dialog, /当前展会数据库暂未收录该制品，你仍然可以手动填写/);
   assert.match(dialog, /制品名称 \*/);
   assert.match(dialog, /matchedCPPItem:\s*linkedCPPItem \|\| undefined/);

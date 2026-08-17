@@ -11,9 +11,9 @@ import {
   Camera,
   Flame,
 } from "@phosphor-icons/react";
-import type { WishItem } from "@/lib/types";
+import type { Priority, WishItem } from "@/lib/types";
 import { getVisibleWishNote } from "@/lib/match-review";
-import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, STATUS_TEXT, PRIORITY_ORDER } from "@/lib/types";
+import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, STATUS_TEXT, PRIORITY_COLOR, PRIORITY_ORDER } from "@/lib/types";
 import {
   CPG_VENUE_ORDER,
   compareWishItemsByLocation,
@@ -33,6 +33,8 @@ interface MobileTableViewProps {
 
 type FilterMode = "all" | "unpurchased";
 type SortMode = "default" | "priority" | "hot";
+
+const PRIORITY_OPTIONS: Priority[] = ["首摊", "次摊", "P1", "P2", "P3", "随缘"];
 
 // ============================================================
 // 状态循环逻辑
@@ -438,6 +440,17 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   )}
                 </div>
 
+                {/* 优先级 */}
+                <div className="w-10 flex-shrink-0 px-0.5 flex justify-center">
+                  <span
+                    className={`inline-flex min-w-8 items-center justify-center rounded border px-1 py-0.5 text-[11px] font-medium whitespace-nowrap ${
+                      PRIORITY_COLOR[item.priority || "随缘"]
+                    }`}
+                  >
+                    {item.priority || "随缘"}
+                  </span>
+                </div>
+
                 {/* 状态 */}
                 <div className="w-14 flex-shrink-0 px-1.5 flex justify-end">
                   <button
@@ -569,9 +582,13 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                       {drawerItem.type === "free" ? "无料" : "有料"}
                     </span>
                   )}
-                  {drawerItem.priority && (
-                    <span className="text-xs text-slate-400">{drawerItem.priority}</span>
-                  )}
+                  <span
+                    className={`rounded border px-2 py-0.5 text-xs font-medium ${
+                      PRIORITY_COLOR[drawerItem.priority || "随缘"]
+                    }`}
+                  >
+                    {drawerItem.priority || "随缘"}
+                  </span>
                   {/* 热度 */}
                   {(drawerItem.hotCount !== undefined && drawerItem.hotCount > 0) && (
                     <span className="flex items-center gap-0.5 text-xs text-orange-600 font-medium">
@@ -690,6 +707,40 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* ---- 优先级 ---- */}
+              <div className="mb-4">
+                <div className="text-xs text-slate-400 mb-2">优先级</div>
+                {drawerEditing ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {PRIORITY_OPTIONS.map((priority) => {
+                      const selected = (drawerItem.priority || "随缘") === priority;
+                      return (
+                        <button
+                          key={priority}
+                          type="button"
+                          onClick={() => handleDrawerUpdate("priority", priority)}
+                          className={`min-h-11 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                            selected
+                              ? `${PRIORITY_COLOR[priority]} ring-2 ring-offset-1 ring-slate-300`
+                              : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {priority}{selected && " ✓"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span
+                    className={`inline-flex rounded border px-2.5 py-1 text-sm font-medium ${
+                      PRIORITY_COLOR[drawerItem.priority || "随缘"]
+                    }`}
+                  >
+                    {drawerItem.priority || "随缘"}
+                  </span>
+                )}
               </div>
 
               {/* ---- 开摊信息：位于状态之后、备注之前 ---- */}

@@ -527,7 +527,7 @@ export default function ExhibitDetail() {
   // ---- 图片上传 ----
 
   /**
-   * 将图片文件转为 base64 data URL 并存到对应条目
+   * 将图片文件转为 base64 data URL，并与其他编辑字段一起保存。
    */
   const handleImageFile = (itemId: string, file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -542,7 +542,7 @@ export default function ExhibitDetail() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
-      handleUpdateItem(itemId, "imageUrl", dataUrl);
+      handleDraftItem(itemId, "imageUrl", dataUrl);
     };
     reader.readAsDataURL(file);
   };

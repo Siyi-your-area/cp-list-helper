@@ -31,6 +31,7 @@ import { matchCPPItemsInBatches } from "@/lib/cpp-match-client";
 import { getWishItemVenue } from "@/lib/wish-item-sort";
 import { BearLogo } from "@/components/BearLogo";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
+import { HomePageSkeleton } from "@/components/PageSkeletons";
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message;
@@ -356,10 +357,7 @@ export default function Home() {
           </div>
         )}
         {loading ? (
-          <div className="text-center py-20">
-            <Spinner className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-4" />
-            <p className="text-slate-500">加载中...</p>
-          </div>
+          <HomePageSkeleton />
         ) : (
           <>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

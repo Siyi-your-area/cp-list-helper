@@ -53,10 +53,10 @@ test("mobile drawer keeps its content scrollable and actions reachable", () => {
 test("mobile first image upload is saved with the complete drawer draft", () => {
   const mobile = read("components/MobileTableView.tsx");
   const page = read("app/exhibit/[id]/page.tsx");
-  const imageHandler = mobile.match(/const handleDrawerImageInput[\s\S]*?reader\.readAsDataURL\(file\);/)?.[0] || "";
 
   assert.match(mobile, /onSaveItem: \(item: WishItem\) => Promise<WishItem>/);
-  assert.match(imageHandler, /handleDrawerUpdate\("imageUrl", dataUrl\)/);
+  assert.match(mobile, /readImageFileAsDataUrl\(file, setImageUploadProgress\)/);
+  assert.match(mobile, /handleDrawerUpdate\("imageUrl", dataUrl\)/);
   assert.match(mobile, /const savedItem = await onSaveItem\(drawerItem\);\s*setDrawerItem\(savedItem\);/);
   assert.match(page, /const savedItems = await saveItemDrafts\(\[normalizedItem\]\);/);
   assert.match(page, /return savedItem;/);
@@ -64,29 +64,57 @@ test("mobile first image upload is saved with the complete drawer draft", () => 
 
 test("mobile replacement image can select the same file and adopts the new saved version", () => {
   const mobile = read("components/MobileTableView.tsx");
-  const imageHandler = mobile.match(/const handleDrawerImageInput[\s\S]*?reader\.readAsDataURL\(file\);/)?.[0] || "";
 
-  assert.match(imageHandler, /e\.target\.value = ""/);
+  assert.match(mobile, /e\.target\.value = ""/);
   assert.match(mobile, /const savedItem = await onSaveItem\(drawerItem\);\s*setDrawerItem\(savedItem\);/);
 });
 
 test("desktop first image upload stays in the current draft until the list is saved", () => {
   const source = read("app/exhibit/[id]/page.tsx");
-  const imageHandler = source.match(/const handleImageFile[\s\S]*?reader\.readAsDataURL\(file\);/)?.[0] || "";
 
-  assert.match(imageHandler, /handleDraftItem\(itemId, "imageUrl", dataUrl\)/);
-  assert.doesNotMatch(imageHandler, /handleUpdateItem\(itemId, "imageUrl", dataUrl\)/);
+  assert.match(source, /readImageFileAsDataUrl\(file,[\s\S]{0,180}setImageProgressByItem/);
+  assert.match(source, /handleDraftItem\(itemId, "imageUrl", dataUrl\)/);
+  assert.doesNotMatch(source, /handleUpdateItem\(itemId, "imageUrl", dataUrl\)/);
   assert.match(source, /await saveItemDrafts\(Array\.from\(dirtyIds\)\);/);
 });
 
 test("desktop replacement image can select the same file without an early database write", () => {
   const source = read("app/exhibit/[id]/page.tsx");
-  const imageHandler = source.match(/const handleImageFile[\s\S]*?reader\.readAsDataURL\(file\);/)?.[0] || "";
   const cellHandler = source.match(/const handleChange = \(e: React\.ChangeEvent<HTMLInputElement>\)[\s\S]*?e\.target\.value = "";/)?.[0] || "";
 
   assert.match(cellHandler, /if \(file\) onFileSelect\(file\)/);
   assert.match(cellHandler, /e\.target\.value = ""/);
-  assert.match(imageHandler, /handleDraftItem\(itemId, "imageUrl", dataUrl\)/);
+  assert.match(source, /handleDraftItem\(itemId, "imageUrl", dataUrl\)/);
+});
+
+test("page loading uses responsive skeletons instead of a loading text screen", () => {
+  const home = read("app/page.tsx");
+  const detail = read("app/exhibit/[id]/page.tsx");
+  const skeletons = read("components/PageSkeletons.tsx");
+
+  assert.match(home, /<HomePageSkeleton \/>/);
+  assert.match(detail, /return <ExhibitPageSkeleton \/>;/);
+  assert.match(skeletons, /animate-pulse/);
+  assert.match(skeletons, /grid-cols-3[\s\S]*sm:grid-cols-6/);
+});
+
+test("image reader reports real percentages and every image entry point displays them", () => {
+  const reader = read("lib/image-file-reader.ts");
+  const detail = read("app/exhibit/[id]/page.tsx");
+  const mobile = read("components/MobileTableView.tsx");
+  const addDialog = read("components/AddWishItemDialog.tsx");
+  const progress = read("components/ImageUploadProgress.tsx");
+
+  assert.match(reader, /reader\.onprogress/);
+  assert.match(reader, /event\.loaded \/ event\.total/);
+  assert.match(reader, /onProgress\(100\)/);
+  assert.match(detail, /<ImageUploadProgress percent=\{uploadProgress\} compact \/>/);
+  assert.match(detail, /disabled=\{savingEdits \|\| imageProcessing\}/);
+  assert.match(mobile, /<ImageUploadProgress percent=\{imageUploadProgress\} \/>/);
+  assert.match(mobile, /disabled=\{imageUploadProgress !== null\}/);
+  assert.match(addDialog, /<ImageUploadProgress percent=\{imageUploadProgress\} \/>/);
+  assert.match(addDialog, /disabled=\{submitting \|\| imageUploadProgress !== null\}/);
+  assert.match(progress, /\{percent\}%/);
 });
 
 test("free items keep the note editor available", () => {

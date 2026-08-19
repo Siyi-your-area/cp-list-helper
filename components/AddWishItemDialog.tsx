@@ -14,6 +14,8 @@ import { parseCPPProductReference } from "@/lib/cpp-link";
 import { detectWishItemType } from "@/lib/cpp-item-mapping";
 import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, type NormalizedCPPItem, type Priority, type WishItem } from "@/lib/types";
 import { getWishItemVenue } from "@/lib/wish-item-sort";
+import { readImageFileAsDataUrl } from "@/lib/image-file-reader";
+import { ImageUploadProgress } from "@/components/ImageUploadProgress";
 
 type NewWishItem = Omit<WishItem, "id">;
 type LookupState = "idle" | "loading" | "success" | "not-found" | "error";
@@ -76,6 +78,7 @@ export function AddWishItemDialog({
   const [openInfo, setOpenInfo] = useState("");
   const [note, setNote] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lookupSequenceRef = useRef(0);
@@ -148,7 +151,7 @@ export function AddWishItemDialog({
 
   const activeReferenceMode = CPP_REFERENCE_MODES.find((mode) => mode.value === referenceMode)!;
 
-  const handleImageFile = (file: File) => {
+  const handleImageFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       setLookupState("error");
       setLookupMessage("请选择图片文件。");
@@ -159,9 +162,15 @@ export function AddWishItemDialog({
       setLookupMessage("图片大小不能超过 2MB。");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => setImageUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await readImageFileAsDataUrl(file, setImageUploadProgress);
+      setImageUrl(dataUrl);
+      window.setTimeout(() => setImageUploadProgress(null), 800);
+    } catch (error) {
+      setImageUploadProgress(null);
+      setLookupState("error");
+      setLookupMessage(error instanceof Error ? error.message : "图片读取失败。");
+    }
   };
 
   const duplicate = Boolean(
@@ -374,8 +383,9 @@ export function AddWishItemDialog({
             </label>
             <div className="sm:col-span-2">
               <span className="mb-2 block text-sm font-semibold text-slate-800">图片 <span className="font-normal text-slate-400">（可选）</span></span>
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="flex min-h-20 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500 hover:border-slate-400">
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="relative flex min-h-20 w-full items-center justify-center gap-2 overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500 hover:border-slate-400">
                 {imageUrl ? <><img src={imageUrl} alt="" className="h-14 w-14 rounded-lg object-cover" /><span>点击更换图片</span></> : <><Camera className="h-5 w-5" /><span>上传图片</span></>}
+                <ImageUploadProgress percent={imageUploadProgress} />
               </button>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) handleImageFile(file); event.target.value = ""; }} />
             </div>
@@ -388,8 +398,8 @@ export function AddWishItemDialog({
           <p className="hidden max-w-xs text-xs leading-5 text-slate-500 sm:block">关联 CPP 后，摊位号和热度可以继续拉取最新数据。</p>
           <div className="ml-auto flex w-full gap-2 sm:w-auto">
             <button type="button" onClick={onClose} disabled={submitting} className="ui-btn-secondary min-h-11 flex-1 px-5 sm:flex-none">取消</button>
-            <button type="button" onClick={() => void handleSubmit()} disabled={submitting} className="ui-btn-primary min-h-11 flex-1 px-5 disabled:opacity-60 sm:flex-none">
-              {submitting ? "添加中…" : "添加到 list"}
+            <button type="button" onClick={() => void handleSubmit()} disabled={submitting || imageUploadProgress !== null} className="ui-btn-primary min-h-11 flex-1 px-5 disabled:cursor-wait disabled:opacity-60 sm:flex-none">
+              {imageUploadProgress !== null ? "图片处理中…" : submitting ? "添加中…" : "添加到 list"}
             </button>
           </div>
         </footer>

@@ -19,6 +19,8 @@ import {
   compareWishItemsByLocation,
   getWishItemVenue,
 } from "@/lib/wish-item-sort";
+import { readImageFileAsDataUrl } from "@/lib/image-file-reader";
+import { ImageUploadProgress } from "@/components/ImageUploadProgress";
 
 // ============================================================
 // 类型
@@ -86,6 +88,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
   const [sortMode, setSortMode] = useState<SortMode>("default");
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [drawerItem, setDrawerItem] = useState<WishItem | null>(null);
+  const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null);
   const [drawerEditing, setDrawerEditing] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [quantityInput, setQuantityInput] = useState("1");
@@ -243,7 +246,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
     }
   };
 
-  const handleDrawerImageInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDrawerImageInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -255,12 +258,14 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
       alert("图片大小不能超过 5MB");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
+    try {
+      const dataUrl = await readImageFileAsDataUrl(file, setImageUploadProgress);
       handleDrawerUpdate("imageUrl", dataUrl);
-    };
-    reader.readAsDataURL(file);
+      window.setTimeout(() => setImageUploadProgress(null), 800);
+    } catch (error) {
+      setImageUploadProgress(null);
+      alert(error instanceof Error ? error.message : "图片读取失败");
+    }
   };
 
   const handleDrawerDelete = async () => {
@@ -636,6 +641,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                     />
                   </label>
                 </div>
+                <ImageUploadProgress percent={imageUploadProgress} />
               </div>
 
               {/* 基本信息 */}
@@ -902,14 +908,15 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                     setDrawerEditing(true);
                   }
                 }}
-                className={`flex-1 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                disabled={imageUploadProgress !== null}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors disabled:cursor-wait disabled:opacity-60 ${
                   drawerEditing
                     ? "bg-green-600 text-white"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
                 {drawerEditing ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-                {drawerEditing ? "保存" : "编辑"}
+                {imageUploadProgress !== null ? "图片处理中" : drawerEditing ? "保存" : "编辑"}
               </button>
               <button
                 onClick={handleDrawerDelete}

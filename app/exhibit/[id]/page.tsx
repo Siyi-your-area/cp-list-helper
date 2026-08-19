@@ -30,6 +30,8 @@ import { MobileTableView } from "@/components/MobileTableView";
 import { AddWishItemDialog } from "@/components/AddWishItemDialog";
 import { ListSummaryBar } from "@/components/ListSummaryBar";
 import { CppUploadGuide } from "@/components/CppUploadGuide";
+import { ImageUploadProgress } from "@/components/ImageUploadProgress";
+import { ExhibitPageSkeleton } from "@/components/PageSkeletons";
 import { authFetch } from "@/lib/auth-client";
 import {
   buildReviewNote,
@@ -49,6 +51,7 @@ import {
 } from "@/lib/wish-item-sort";
 import { loadExcelImagesConcurrently } from "@/lib/excel-image-loader";
 import { calculateListSummary } from "@/lib/list-summary";
+import { readImageFileAsDataUrl } from "@/lib/image-file-reader";
 
 const PAGE_SIZE = 100;
 
@@ -171,6 +174,8 @@ export default function ExhibitDetail() {
   const [syncingCPPData, setSyncingCPPData] = useState(false);
   const [cppSyncMessage, setCppSyncMessage] = useState("");
   const [isCppSyncModalOpen, setIsCppSyncModalOpen] = useState(false);
+  const [imageProgressByItem, setImageProgressByItem] = useState<Record<string, number>>({});
+  const imageProcessing = Object.keys(imageProgressByItem).length > 0;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -529,7 +534,7 @@ export default function ExhibitDetail() {
   /**
    * 将图片文件转为 base64 data URL，并与其他编辑字段一起保存。
    */
-  const handleImageFile = (itemId: string, file: File) => {
+  const handleImageFile = async (itemId: string, file: File) => {
     if (!file.type.startsWith("image/")) {
       alert("请选择图片文件");
       return;
@@ -539,12 +544,26 @@ export default function ExhibitDetail() {
       alert("图片大小不能超过 2MB");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
+    try {
+      const dataUrl = await readImageFileAsDataUrl(file, (percent) => {
+        setImageProgressByItem((current) => ({ ...current, [itemId]: percent }));
+      });
       handleDraftItem(itemId, "imageUrl", dataUrl);
-    };
-    reader.readAsDataURL(file);
+      window.setTimeout(() => {
+        setImageProgressByItem((current) => {
+          const next = { ...current };
+          delete next[itemId];
+          return next;
+        });
+      }, 800);
+    } catch (error) {
+      setImageProgressByItem((current) => {
+        const next = { ...current };
+        delete next[itemId];
+        return next;
+      });
+      alert(error instanceof Error ? error.message : "图片读取失败");
+    }
   };
 
   /**
@@ -876,7 +895,7 @@ export default function ExhibitDetail() {
   const totalPages = Math.ceil(flattenedItems.length / PAGE_SIZE);
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">加载中...</div>;
+    return <ExhibitPageSkeleton />;
   }
 
   if (loadError) {
@@ -966,8 +985,8 @@ export default function ExhibitDetail() {
             <div className="col-start-3 row-start-2 flex items-center justify-self-end gap-1.5 sm:col-auto sm:row-auto sm:ml-auto sm:gap-2">
               <button
                 onClick={() => void handleToggleEditMode()}
-                disabled={savingEdits}
-                className={`order-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-colors sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm ${
+                disabled={savingEdits || imageProcessing}
+                className={`order-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm ${
                   editMode
                     ? "bg-amber-500 text-white shadow-md ring-2 ring-amber-200 hover:bg-amber-600"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -976,7 +995,7 @@ export default function ExhibitDetail() {
                 title={editMode ? "保存并退出" : "编辑模式"}
               >
                 {editMode ? <Check className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-                <span className="hidden sm:inline">{savingEdits ? "保存中..." : editMode ? "保存并退出" : "编辑模式"}</span>
+                <span className="hidden sm:inline">{imageProcessing ? "图片处理中..." : savingEdits ? "保存中..." : editMode ? "保存并退出" : "编辑模式"}</span>
               </button>
               {eventInfo?.cppEventId && (
                 <button
@@ -1324,6 +1343,7 @@ export default function ExhibitDetail() {
                         item={item}
                         editMode={editMode}
                         onFileSelect={(file) => handleImageFile(item.id, file)}
+                        uploadProgress={imageProgressByItem[item.id] ?? null}
                       />
                     </Td>
                     {/* 优先级 */}
@@ -1850,10 +1870,12 @@ function ImageCell({
   item,
   editMode,
   onFileSelect,
+  uploadProgress,
 }: {
   item: WishItem;
   editMode: boolean;
   onFileSelect: (file: File) => void;
+  uploadProgress: number | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -1914,6 +1936,7 @@ function ImageCell({
           className="hidden"
         />
       )}
+      <ImageUploadProgress percent={uploadProgress} compact />
     </div>
   );
 }

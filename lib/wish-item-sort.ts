@@ -13,7 +13,8 @@ export function isCreatorBoothNumber(boothNumber: string): boolean {
 }
 
 export function getWishItemVenue(item: WishItemLocation): string {
-  if (isCreatorBoothNumber(item.boothNumber)) return "";
+  // CPG08 的创作者摊位统一位于贰馆；摊位号本身仍保留“创xx”。
+  if (isCreatorBoothNumber(item.boothNumber)) return "贰";
 
   const explicitVenue = item.venue?.trim() || "";
   if (venueIndex.has(explicitVenue)) return explicitVenue;
@@ -62,6 +63,10 @@ export function compareWishItemsByLocation(a: WishItem, b: WishItem): number {
 export function normalizeWishItemLocation(item: WishItem): WishItem {
   const venue = getWishItemVenue(item);
   const booth = getBoothWithinVenue(item);
-  const boothNumber = venue && booth ? `${venue}${booth}` : item.boothNumber.trim();
+  const boothNumber = isCreatorBoothNumber(item.boothNumber)
+    ? item.boothNumber.trim().normalize("NFKC")
+    : venue && booth
+      ? `${venue}${booth}`
+      : item.boothNumber.trim();
   return { ...item, venue, boothNumber };
 }

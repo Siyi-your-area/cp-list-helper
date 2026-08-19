@@ -16,14 +16,14 @@ function loadLocationHelpers() {
   return Function(`${compiled}\nreturn { getWishItemVenue, normalizeWishItemLocation };`)();
 }
 
-test("creator booths keep their booth number and never infer a venue", () => {
+test("CPG08 creator booths keep their booth number and resolve to venue 贰", () => {
   const { getWishItemVenue, normalizeWishItemLocation } = loadLocationHelpers();
-  assert.equal(getWishItemVenue({ boothNumber: "创064", venue: "壹" }), "");
-  assert.equal(getWishItemVenue({ boothNumber: "创００７", venue: "伍" }), "");
+  assert.equal(getWishItemVenue({ boothNumber: "创064", venue: "壹" }), "贰");
+  assert.equal(getWishItemVenue({ boothNumber: "创００７", venue: "伍" }), "贰");
   assert.equal(getWishItemVenue({ boothNumber: "壹A01" }), "壹");
   assert.deepEqual(
     normalizeWishItemLocation({ id: "1", boothNumber: "创064", venue: "创", productName: "test", status: "pending" }),
-    { id: "1", boothNumber: "创064", venue: "", productName: "test", status: "pending" }
+    { id: "1", boothNumber: "创064", venue: "贰", productName: "test", status: "pending" }
   );
 });
 
@@ -86,6 +86,14 @@ test("mobile list displays priority and the drawer can edit it", () => {
   assert.match(source, /PRIORITY_OPTIONS\.map\(\(priority\) =>/);
   assert.match(source, /handleDrawerUpdate\("priority", priority\)/);
   assert.match(source, /PRIORITY_COLOR\[drawerItem\.priority \|\| "随缘"\]/);
+});
+
+test("mobile list highlights quantity only when it is greater than one", () => {
+  const source = read("components/MobileTableView.tsx");
+
+  assert.match(source, /\(item\.quantity \?\? 1\) > 1 &&/);
+  assert.match(source, /×\{item\.quantity\}/);
+  assert.doesNotMatch(source, /\(item\.quantity \?\? 1\) >= 1 &&/);
 });
 
 test("mobile list groups booths, filters pending purchase or pickup, and completes a booth", () => {

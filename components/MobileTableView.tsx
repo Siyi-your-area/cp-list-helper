@@ -523,8 +523,8 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   )}
                 </div>
 
-                {/* 优先级 */}
-                <div className="w-10 flex-shrink-0 px-0.5 flex justify-center">
+                {/* 优先级；数量大于 1 时紧邻展示数量 */}
+                <div className="flex flex-shrink-0 items-center justify-center gap-1 px-0.5">
                   <span
                     className={`inline-flex min-w-8 items-center justify-center rounded border px-1 py-0.5 text-[11px] font-medium whitespace-nowrap ${
                       PRIORITY_COLOR[item.priority || "随缘"]
@@ -532,6 +532,11 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                   >
                     {item.priority || "随缘"}
                   </span>
+                  {(item.quantity ?? 1) > 1 && (
+                    <span className="inline-flex min-w-7 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 whitespace-nowrap">
+                      ×{item.quantity}
+                    </span>
+                  )}
                 </div>
 
                 {/* 状态 */}

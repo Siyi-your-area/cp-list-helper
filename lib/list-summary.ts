@@ -5,6 +5,7 @@ export interface ListSummary {
   paid: number;
   free: number;
   pending: number;
+  paidAwaitingPickup: number;
   purchased: number;
   soldout: number;
   pendingPickup: number;
@@ -22,11 +23,12 @@ function itemCost(item: WishItem): number {
 
 export function calculateListSummary(items: readonly WishItem[]): ListSummary {
   const pending = items.filter((item) => item.status === "pending").length;
+  const paidAwaitingPickup = items.filter((item) => item.status === "已买待取").length;
   const purchased = items.filter((item) => item.status === "purchased").length;
   const soldout = items.filter((item) => item.status === "soldout").length;
   const pendingPickup = items.filter((item) => item.status === "待领取").length;
   const received = items.filter((item) => item.status === "已领取").length;
-  const paid = pending + purchased + soldout;
+  const paid = pending + paidAwaitingPickup + purchased + soldout;
   const free = pendingPickup + received;
 
   return {
@@ -34,13 +36,16 @@ export function calculateListSummary(items: readonly WishItem[]): ListSummary {
     paid,
     free,
     pending,
+    paidAwaitingPickup,
     purchased,
     soldout,
     pendingPickup,
     received,
     estimatedCost: items.reduce((sum, item) => sum + itemCost(item), 0),
     actualCost: items.reduce(
-      (sum, item) => sum + (item.status === "purchased" ? itemCost(item) : 0),
+      (sum, item) => sum + (
+        item.status === "purchased" || item.status === "已买待取" ? itemCost(item) : 0
+      ),
       0
     ),
   };

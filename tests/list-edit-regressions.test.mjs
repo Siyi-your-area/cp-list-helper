@@ -46,7 +46,7 @@ test("draft state is updated synchronously before saving", () => {
 
 test("mobile drawer keeps its content scrollable and actions reachable", () => {
   const source = read("components/MobileTableView.tsx");
-  assert.match(source, /max-h-\[92dvh\][^"\n]*min-h-0[^"\n]*overflow-hidden/);
+  assert.match(source, /max-h-\[92vh\][^"\n]*max-h-\[92dvh\][^"\n]*min-h-0[^"\n]*overflow-hidden/);
   assert.match(source, /min-h-0 flex-1 overflow-y-auto px-4 pb-6/);
 });
 
@@ -55,9 +55,9 @@ test("mobile first image upload is saved with the complete drawer draft", () => 
   const page = read("app/exhibit/[id]/page.tsx");
 
   assert.match(mobile, /onSaveItem: \(item: WishItem\) => Promise<WishItem>/);
-  assert.match(mobile, /readImageFileAsDataUrl\(file, setImageUploadProgress\)/);
-  assert.match(mobile, /handleDrawerUpdate\("imageUrl", dataUrl\)/);
-  assert.match(mobile, /const savedItem = await onSaveItem\(drawerItem\);\s*setDrawerItem\(savedItem\);/);
+  assert.match(mobile, /uploadWishItemImage\(eventId, file, setImageUploadProgress\)/);
+  assert.match(mobile, /handleDrawerUpdate\("imageUrl", uploadedUrl\)/);
+  assert.match(mobile, /await onSaveItem\(drawerItem\);\s*setDrawerItem\(null\);\s*setDrawerEditing\(false\);/);
   assert.match(page, /const savedItems = await saveItemDrafts\(\[normalizedItem\]\);/);
   assert.match(page, /return savedItem;/);
 });
@@ -66,15 +66,37 @@ test("mobile replacement image can select the same file and adopts the new saved
   const mobile = read("components/MobileTableView.tsx");
 
   assert.match(mobile, /e\.target\.value = ""/);
-  assert.match(mobile, /const savedItem = await onSaveItem\(drawerItem\);\s*setDrawerItem\(savedItem\);/);
+  assert.match(mobile, /await onSaveItem\(drawerItem\);\s*setDrawerItem\(null\);/);
+});
+
+test("mobile drawer closes after a successful save", () => {
+  const source = read("components/MobileTableView.tsx");
+
+  assert.match(source, /await onSaveItem\(drawerItem\);\s*setDrawerItem\(null\);\s*setDrawerEditing\(false\);\s*setDetailsExpanded\(false\);/);
+  assert.match(source, /catch \(error\) \{\s*alert\("保存失败:/);
+});
+
+test("mobile add button enters edit mode and opens the add-item dialog", () => {
+  const source = read("app/exhibit/[id]/page.tsx");
+
+  assert.match(source, /const handleMobileAddItem = \(\) => \{[\s\S]{0,180}setEditMode\(true\);[\s\S]{0,80}setIsAddItemDialogOpen\(true\);/);
+  assert.match(source, /\{!editMode && \([\s\S]{0,300}onClick=\{handleMobileAddItem\}[\s\S]{0,220}sm:hidden/);
+});
+
+test("add-item dialog has a legacy viewport fallback and always opens at the top", () => {
+  const source = read("components/AddWishItemDialog.tsx");
+
+  assert.match(source, /max-h-\[94vh\][^"\n]*max-h-\[94dvh\]/);
+  assert.match(source, /scrollContainerRef\.current\.scrollTop = 0/);
+  assert.match(source, /ref=\{scrollContainerRef\}[^>]*overflow-y-auto/);
 });
 
 test("desktop first image upload stays in the current draft until the list is saved", () => {
   const source = read("app/exhibit/[id]/page.tsx");
 
-  assert.match(source, /readImageFileAsDataUrl\(file,[\s\S]{0,180}setImageProgressByItem/);
-  assert.match(source, /handleDraftItem\(itemId, "imageUrl", dataUrl\)/);
-  assert.doesNotMatch(source, /handleUpdateItem\(itemId, "imageUrl", dataUrl\)/);
+  assert.match(source, /uploadWishItemImage\(eventId, file,[\s\S]{0,180}setImageProgressByItem/);
+  assert.match(source, /handleDraftItem\(itemId, "imageUrl", uploadedUrl\)/);
+  assert.doesNotMatch(source, /handleUpdateItem\(itemId, "imageUrl", uploadedUrl\)/);
   assert.match(source, /await saveItemDrafts\(Array\.from\(dirtyIds\)\);/);
 });
 
@@ -84,7 +106,7 @@ test("desktop replacement image can select the same file without an early databa
 
   assert.match(cellHandler, /if \(file\) onFileSelect\(file\)/);
   assert.match(cellHandler, /e\.target\.value = ""/);
-  assert.match(source, /handleDraftItem\(itemId, "imageUrl", dataUrl\)/);
+  assert.match(source, /handleDraftItem\(itemId, "imageUrl", uploadedUrl\)/);
 });
 
 test("page loading uses responsive skeletons instead of a loading text screen", () => {
@@ -98,16 +120,16 @@ test("page loading uses responsive skeletons instead of a loading text screen", 
   assert.match(skeletons, /grid-cols-3[\s\S]*sm:grid-cols-6/);
 });
 
-test("image reader reports real percentages and every image entry point displays them", () => {
-  const reader = read("lib/image-file-reader.ts");
+test("storage uploader reports network percentages and every image entry point displays them", () => {
+  const uploader = read("lib/wish-item-image-upload.ts");
   const detail = read("app/exhibit/[id]/page.tsx");
   const mobile = read("components/MobileTableView.tsx");
   const addDialog = read("components/AddWishItemDialog.tsx");
   const progress = read("components/ImageUploadProgress.tsx");
 
-  assert.match(reader, /reader\.onprogress/);
-  assert.match(reader, /event\.loaded \/ event\.total/);
-  assert.match(reader, /onProgress\(100\)/);
+  assert.match(uploader, /request\.upload\.onprogress/);
+  assert.match(uploader, /event\.loaded \/ event\.total/);
+  assert.match(uploader, /onProgress\?\.\(100\)/);
   assert.match(detail, /<ImageUploadProgress percent=\{uploadProgress\} compact \/>/);
   assert.match(detail, /disabled=\{savingEdits \|\| imageProcessing\}/);
   assert.match(mobile, /<ImageUploadProgress percent=\{imageUploadProgress\} \/>/);
@@ -158,7 +180,7 @@ test("mobile list groups booths, filters pending purchase or pickup, and complet
   const page = read("app/exhibit/[id]/page.tsx");
 
   assert.match(source, /只看未买\/取/);
-  assert.match(source, /item\.status === "pending" \|\| item\.status === "待领取"/);
+  assert.match(source, /item\.status === "pending" \|\| item\.status === "已买待取" \|\| item\.status === "待领取"/);
   assert.match(source, /const boothGroups = useMemo/);
   assert.match(source, /group\.items\.length > 1/);
   assert.match(source, /本摊完成/);
@@ -171,4 +193,35 @@ test("mobile list groups booths, filters pending purchase or pickup, and complet
   assert.match(source, /await onSaveItem\(/);
   assert.match(page, /添加制品/);
   assert.doesNotMatch(page, />\s*添加新行\s*</);
+});
+
+test("paid items support purchased-awaiting-pickup across mobile and desktop", () => {
+  const mobile = read("components/MobileTableView.tsx");
+  const page = read("app/exhibit/[id]/page.tsx");
+  const types = read("lib/types.ts");
+
+  assert.match(types, /"已买待取": "已买待取"/);
+  assert.match(mobile, /\{ value: "已买待取", label: "已买待取" \}/);
+  assert.match(mobile, /const PAID_STATUS_CYCLE = \["pending", "已买待取", "purchased", "soldout"\]/);
+  assert.match(page, /<option value="已买待取">已买待取<\/option>/);
+});
+
+test("summary and search scroll away instead of locking the list inside the viewport", () => {
+  const page = read("app/exhibit/[id]/page.tsx");
+  const mobile = read("components/MobileTableView.tsx");
+
+  assert.match(page, /<div className="min-h-screen bg-slate-50">/);
+  assert.doesNotMatch(page, /<div className="h-screen flex flex-col bg-slate-50 overflow-hidden">/);
+  assert.match(page, /ref=\{tableContainerRef\} className="overflow-x-auto"/);
+  assert.doesNotMatch(mobile, /搜索栏[\s\S]{0,160}sticky top-0/);
+  assert.match(mobile, /<div ref=\{listRef\}>/);
+  assert.doesNotMatch(mobile, /ref=\{listRef\} className="flex-1 overflow-y-auto"/);
+});
+
+test("desktop action header stays visible while the summary scrolls away", () => {
+  const page = read("app/exhibit/[id]/page.tsx");
+
+  assert.match(page, /<header className="[^"]*md:sticky md:top-0 md:z-40[^"]*">/);
+  assert.doesNotMatch(page, /<header className="[^"]*(?<!md:)sticky[^"]*">/);
+  assert.match(page, /<div className="pt-6 pb-3">\s*<ListSummaryBar items=\{items\} \/>/);
 });

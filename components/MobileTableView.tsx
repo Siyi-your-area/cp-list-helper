@@ -19,14 +19,15 @@ import {
   compareWishItemsByLocation,
   getWishItemVenue,
 } from "@/lib/wish-item-sort";
-import { readImageFileAsDataUrl } from "@/lib/image-file-reader";
 import { ImageUploadProgress } from "@/components/ImageUploadProgress";
+import { uploadWishItemImage, WISH_ITEM_IMAGE_MAX_BYTES } from "@/lib/wish-item-image-upload";
 
 // ============================================================
 // 类型
 // ============================================================
 
 interface MobileTableViewProps {
+  eventId: string;
   items: WishItem[];
   onUpdateItem: (id: string, field: keyof WishItem, value: any) => void;
   onSaveItem: (item: WishItem) => Promise<WishItem>;
@@ -42,7 +43,7 @@ const PRIORITY_OPTIONS: Priority[] = ["首摊", "次摊", "P1", "P2", "P3", "随
 // 状态循环逻辑
 // ============================================================
 
-const PAID_STATUS_CYCLE = ["pending", "purchased", "soldout"] as const;
+const PAID_STATUS_CYCLE = ["pending", "已买待取", "purchased", "soldout"] as const;
 const FREE_STATUS_CYCLE = ["待领取", "已领取"] as const;
 
 function getNextStatus(current: string, type: "paid" | "free"): string {
@@ -68,6 +69,8 @@ function getStatusColor(status: string): string {
     case "pending":
     case "待领取":
       return "bg-amber-100 text-amber-900 ring-1 ring-inset ring-amber-300";
+    case "已买待取":
+      return "bg-violet-100 text-violet-900 ring-1 ring-inset ring-violet-300";
     case "purchased":
     case "已领取":
       return "bg-emerald-100 text-emerald-900 ring-1 ring-inset ring-emerald-300";
@@ -82,7 +85,7 @@ function getStatusColor(status: string): string {
 // 组件
 // ============================================================
 
-export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem }: MobileTableViewProps) {
+export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRemoveItem }: MobileTableViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [sortMode, setSortMode] = useState<SortMode>("default");
@@ -116,7 +119,9 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
     // 筛选
     if (filterMode === "unpurchased") {
-      result = result.filter((item) => item.status === "pending" || item.status === "待领取");
+      result = result.filter(
+        (item) => item.status === "pending" || item.status === "已买待取" || item.status === "待领取"
+      );
     }
 
     // 区域筛选
@@ -206,7 +211,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
   const handleCompleteBooth = async (groupKey: string, groupItems: WishItem[]) => {
     const pendingItems = groupItems.filter(
-      (item) => item.status === "pending" || item.status === "待领取"
+      (item) => item.status === "pending" || item.status === "已买待取" || item.status === "待领取"
     );
     if (pendingItems.length === 0 || completingBoothKey) return;
 
@@ -238,9 +243,10 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
   const handleDrawerSave = async () => {
     if (!drawerItem) return;
     try {
-      const savedItem = await onSaveItem(drawerItem);
-      setDrawerItem(savedItem);
+      await onSaveItem(drawerItem);
+      setDrawerItem(null);
       setDrawerEditing(false);
+      setDetailsExpanded(false);
     } catch (error) {
       alert("保存失败: " + (error as Error).message);
     }
@@ -254,13 +260,13 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
       alert("请选择图片文件");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > WISH_ITEM_IMAGE_MAX_BYTES) {
       alert("图片大小不能超过 5MB");
       return;
     }
     try {
-      const dataUrl = await readImageFileAsDataUrl(file, setImageUploadProgress);
-      handleDrawerUpdate("imageUrl", dataUrl);
+      const uploadedUrl = await uploadWishItemImage(eventId, file, setImageUploadProgress);
+      handleDrawerUpdate("imageUrl", uploadedUrl);
       window.setTimeout(() => setImageUploadProgress(null), 800);
     } catch (error) {
       setImageUploadProgress(null);
@@ -329,9 +335,9 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
   // ---- 渲染 ----
 
   return (
-    <div className="flex flex-col h-full">
+    <div>
       {/* ---- 搜索栏 ---- */}
-      <div className="px-3 pt-3 pb-2 bg-white border-b border-slate-200 sticky top-0 z-20">
+      <div className="border-b border-slate-200 bg-white px-3 pt-3 pb-2">
         <div className="relative">
           <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -353,7 +359,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
       </div>
 
       {/* ---- 筛选 + 排序 ---- */}
-      <div className="px-3 py-2 bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto sticky top-[57px] z-19">
+      <div className="sticky top-0 z-20 flex items-center gap-2 overflow-x-auto border-b border-slate-100 bg-white px-3 py-2">
         <button
           onClick={() => setFilterMode(filterMode === "all" ? "unpurchased" : "all")}
           className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
@@ -389,7 +395,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
 
       {/* ---- 区域快跳 ---- */}
       {areas.length > 0 && (
-        <div className="px-3 py-2 bg-white border-b border-slate-100 flex gap-1.5 overflow-x-auto sticky top-[93px] z-18">
+        <div className="sticky top-[41px] z-[19] flex gap-1.5 overflow-x-auto border-b border-slate-100 bg-white px-3 py-2">
           <button
             onClick={() => setSelectedArea(null)}
             className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
@@ -413,7 +419,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
       )}
 
       {/* ---- 表格 ---- */}
-      <div ref={listRef} className="flex-1 overflow-y-auto">
+      <div ref={listRef}>
         {processedItems.length === 0 ? (
           <div className="text-center py-16 text-slate-400 text-sm">
             {items.length === 0 ? "暂无list条目" : "没有匹配的结果"}
@@ -422,7 +428,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
           <div className="space-y-2 bg-slate-100 py-2">
             {boothGroups.map((group) => {
               const pendingCount = group.items.filter(
-                (item) => item.status === "pending" || item.status === "待领取"
+                (item) => item.status === "pending" || item.status === "已买待取" || item.status === "待领取"
               ).length;
               return (
               <section
@@ -545,13 +551,13 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                 </div>
 
                 {/* 状态 */}
-                <div className="w-14 flex-shrink-0 px-1.5 flex justify-end">
+                <div className="flex w-[4.25rem] flex-shrink-0 justify-end px-1">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       handleStatusCycle(item);
                     }}
-                    className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}
+                    className={`rounded-full px-1.5 py-1 text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}
                   >
                     {STATUS_TEXT[item.status] || item.status}
                   </button>
@@ -574,7 +580,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
         </span>
         <span>
           已买/取 {items.filter((i) => i.status === "purchased" || i.status === "已领取").length} ·
-          待买/取 {items.filter((i) => i.status === "pending" || i.status === "待领取").length}
+          待买/取 {items.filter((i) => i.status === "pending" || i.status === "已买待取" || i.status === "待领取").length}
         </span>
       </div>
 
@@ -591,7 +597,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
           />
 
           {/* 抽屉内容 */}
-          <div className="relative bg-white rounded-t-2xl max-h-[92dvh] flex min-h-0 flex-col overflow-hidden animate-slide-up">
+          <div className="relative flex max-h-[92vh] max-h-[92dvh] min-h-0 flex-col overflow-hidden rounded-t-2xl bg-white animate-slide-up">
             {/* 拖拽条 */}
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-10 h-1 rounded-full bg-slate-300" />
@@ -786,6 +792,7 @@ export function MobileTableView({ items, onUpdateItem, onSaveItem, onRemoveItem 
                       ]
                     : [
                         { value: "pending", label: "待购买" },
+                        { value: "已买待取", label: "已买待取" },
                         { value: "purchased", label: "已购买" },
                         { value: "soldout", label: "已售罄" },
                       ]

@@ -60,6 +60,7 @@ export function ListSummaryBar({ items, className = "" }: ListSummaryBarProps) {
         {activeKind === "total" && (
           <>
             <span>待购买 <strong className="text-slate-800">{summary.pending}</strong></span>
+            <span>已买待取 <strong className="text-slate-800">{summary.paidAwaitingPickup}</strong></span>
             <span>已购买 <strong className="text-slate-800">{summary.purchased}</strong></span>
             <span>已售罄 <strong className="text-slate-800">{summary.soldout}</strong></span>
             <span>待领取 <strong className="text-slate-800">{summary.pendingPickup}</strong></span>
@@ -69,6 +70,7 @@ export function ListSummaryBar({ items, className = "" }: ListSummaryBarProps) {
         {activeKind === "paid" && (
           <>
             <span>待购买 <strong className="text-slate-800">{summary.pending}</strong></span>
+            <span>已买待取 <strong className="text-slate-800">{summary.paidAwaitingPickup}</strong></span>
             <span>已购买 <strong className="text-slate-800">{summary.purchased}</strong></span>
             <span>已售罄 <strong className="text-slate-800">{summary.soldout}</strong></span>
           </>
@@ -82,7 +84,7 @@ export function ListSummaryBar({ items, className = "" }: ListSummaryBarProps) {
         {activeKind === "cost" && (
           <>
             <span>预计花费 <strong className="text-slate-800">{formatCurrency(summary.estimatedCost)}</strong></span>
-            <span>实际花费仅统计已购买制品</span>
+            <span>实际花费统计已购买和已买待取制品</span>
           </>
         )}
       </div>

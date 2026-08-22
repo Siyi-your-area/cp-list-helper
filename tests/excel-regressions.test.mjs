@@ -87,7 +87,7 @@ test("export uses total-price wording, shows progress, and appends list summary"
   assert.match(source, /header: "总价", key: "total"/);
   assert.match(source, /因导出内容含有图片，导出时间较长，请耐心等待/);
   assert.match(source, /calculateListSummary\(items\)/);
-  for (const label of ["总展品", "待购买", "已购买", "已售罄", "待领取", "已领取", "实际花费"]) {
+  for (const label of ["总展品", "待购买", "已买待取", "已购买", "已售罄", "待领取", "已领取", "实际花费"]) {
     assert.match(source, new RegExp(`\\["${label}", summary\\.`));
   }
 });

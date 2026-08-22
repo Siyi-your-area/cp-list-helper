@@ -51,19 +51,21 @@ import {
 } from "@/lib/wish-item-sort";
 import { loadExcelImagesConcurrently } from "@/lib/excel-image-loader";
 import { calculateListSummary } from "@/lib/list-summary";
-import { readImageFileAsDataUrl } from "@/lib/image-file-reader";
+import { uploadWishItemImage, WISH_ITEM_IMAGE_MAX_BYTES } from "@/lib/wish-item-image-upload";
 
 const PAGE_SIZE = 100;
 
 /**
  * 状态颜色 — 直接返回 Tailwind class（JIT 可检测）
- * 待购买/待领取 → 淡蓝 | 已购买/已领取 → 淡绿 | 已售罄 → 淡红
+ * 待购买/待领取 → 淡蓝 | 已买待取 → 淡紫 | 已购买/已领取 → 淡绿 | 已售罄 → 淡红
  */
 function getStatusColor(status: string): string {
   switch (status) {
     case "pending":
     case "待领取":
       return "bg-blue-100 text-blue-800";
+    case "已买待取":
+      return "bg-violet-100 text-violet-800";
     case "purchased":
     case "已领取":
       return "bg-green-100 text-green-800";
@@ -345,6 +347,12 @@ export default function ExhibitDetail() {
     setIsAddItemDialogOpen(true);
   };
 
+  const handleMobileAddItem = () => {
+    dirtyItemIdsRef.current.clear();
+    setEditMode(true);
+    setIsAddItemDialogOpen(true);
+  };
+
   const handleCreateItem = async (item: Omit<WishItem, "id">) => {
     await addItem(item);
     setCurrentPage(Math.max(1, Math.ceil((items.length + 1) / PAGE_SIZE)));
@@ -531,24 +539,21 @@ export default function ExhibitDetail() {
 
   // ---- 图片上传 ----
 
-  /**
-   * 将图片文件转为 base64 data URL，并与其他编辑字段一起保存。
-   */
+  /** 上传图片到 Storage，并将 URL 与其他编辑字段一起保存。 */
   const handleImageFile = async (itemId: string, file: File) => {
     if (!file.type.startsWith("image/")) {
       alert("请选择图片文件");
       return;
     }
-    // 限制大小 2MB（localStorage 有容量限制）
-    if (file.size > 2 * 1024 * 1024) {
-      alert("图片大小不能超过 2MB");
+    if (file.size > WISH_ITEM_IMAGE_MAX_BYTES) {
+      alert("图片大小不能超过 5MB");
       return;
     }
     try {
-      const dataUrl = await readImageFileAsDataUrl(file, (percent) => {
+      const uploadedUrl = await uploadWishItemImage(eventId, file, (percent) => {
         setImageProgressByItem((current) => ({ ...current, [itemId]: percent }));
       });
-      handleDraftItem(itemId, "imageUrl", dataUrl);
+      handleDraftItem(itemId, "imageUrl", uploadedUrl);
       window.setTimeout(() => {
         setImageProgressByItem((current) => {
           const next = { ...current };
@@ -805,6 +810,7 @@ export default function ExhibitDetail() {
       const summaryRows: Array<[string, number]> = [
         ["总展品", summary.total],
         ["待购买", summary.pending],
+        ["已买待取", summary.paidAwaitingPickup],
         ["已购买", summary.purchased],
         ["已售罄", summary.soldout],
         ["待领取", summary.pendingPickup],
@@ -933,9 +939,9 @@ export default function ExhibitDetail() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+    <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 shrink-0">
+      <header className="shrink-0 border-b border-slate-200 bg-white md:sticky md:top-0 md:z-40">
         <div className="max-w-7xl mx-auto px-3 py-3 sm:px-6 sm:py-4 lg:px-8">
           <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 sm:flex sm:gap-3">
             <button
@@ -1165,12 +1171,13 @@ export default function ExhibitDetail() {
 
       {/* Main content area - fills remaining height */}
       {/* 手机端视图 */}
-      <div className="md:hidden flex flex-1 min-h-0 flex-col">
-        <div className="shrink-0 px-3 pt-3">
+      <div className="md:hidden">
+        <div className="px-3 pt-3">
           <ListSummaryBar items={items} />
         </div>
-        <div className="min-h-0 flex-1">
+        <div>
           <MobileTableView
+            eventId={eventId}
             items={items}
             onUpdateItem={handleUpdateItem}
             onSaveItem={handleSaveMobileItem}
@@ -1180,14 +1187,14 @@ export default function ExhibitDetail() {
       </div>
 
       {/* 桌面端视图 */}
-      <div className="hidden md:flex flex-1 min-h-0 flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto hidden w-full max-w-7xl px-4 sm:px-6 md:block lg:px-8">
         {/* Stats */}
-        <div className="shrink-0 pt-6 pb-3">
+        <div className="pt-6 pb-3">
           <ListSummaryBar items={items} />
         </div>
 
         {/* Search + Sort */}
-        <div className="shrink-0 pb-3 flex gap-3">
+        <div className="flex gap-3 pb-3">
           <div className="flex-1 relative">
             <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -1236,8 +1243,8 @@ export default function ExhibitDetail() {
         </div>
 
         {/* Table - flex to fill remaining space */}
-        <div className="flex-1 min-h-0 flex flex-col pb-6">
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden flex-1 min-h-0 flex flex-col">
+        <div className="pb-6">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {editMode && (
             <div className="p-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
               <button
@@ -1258,9 +1265,9 @@ export default function ExhibitDetail() {
             </div>
           )}
 
-          <div ref={tableContainerRef} className="overflow-auto flex-1 min-h-0">
+          <div ref={tableContainerRef} className="overflow-x-auto">
             <table className="w-full border-collapse">
-              <thead className="bg-slate-50 sticky top-0 z-10">
+              <thead className="sticky top-0 z-10 bg-slate-50">
                 <tr>
                   {editMode && (
                     <Th width="44px">
@@ -1418,6 +1425,7 @@ export default function ExhibitDetail() {
                           ) : (
                             <>
                               <option value="pending">待购买</option>
+                              <option value="已买待取">已买待取</option>
                               <option value="purchased">已购买</option>
                               <option value="soldout">已售罄</option>
                             </>
@@ -1574,10 +1582,10 @@ export default function ExhibitDetail() {
         </div>
       )}
 
-      {editMode && (
+      {!editMode && (
         <button
           type="button"
-          onClick={handleAddItem}
+          onClick={handleMobileAddItem}
           className="fixed bottom-20 right-4 z-40 grid h-12 w-12 place-items-center rounded-full bg-slate-700 text-white shadow-lg transition hover:bg-slate-800 sm:hidden"
           aria-label="添加制品"
           title="添加制品"

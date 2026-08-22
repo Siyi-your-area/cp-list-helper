@@ -21,6 +21,7 @@
     "scan:cpg": "node scripts/scan-cpg.mjs",
     "sync:cpg": "node scripts/sync-cpg.mjs",
     "sync:cpg:daily": "node scripts/sync-cpg-daily.mjs",
+    "migrate:wish-item-images": "node scripts/migrate-wish-item-images.mjs",
     "promote:cpg": "node scripts/promote-cpp-snapshot.mjs",
     "test:cpg-snapshot": "node --test tests/cpg-snapshot.test.mjs tests/cpg-promotion.test.mjs",
     "test:cpg-daily": "node --test tests/cpg-daily.test.mjs",

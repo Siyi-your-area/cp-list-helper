@@ -33,7 +33,7 @@ export interface WishItem {
   venue?: string;            // 场馆（摊位号第一个字）
   openInfo?: string;         // 开摊信息
   priority?: Priority;
-  status: string;            // "pending" | "purchased" | "soldout" | "待领取" | "已领取"
+  status: string;            // "pending" | "已买待取" | "purchased" | "soldout" | "待领取" | "已领取"
   price?: number;
   note?: string;
   quantity?: number;
@@ -193,6 +193,7 @@ export interface BoothIndexEntry {
  */
 export const STATUS_TEXT: Record<string, string> = {
   pending: "待购买",
+  "已买待取": "已买待取",
   purchased: "已购买",
   soldout: "已售罄",
   "待领取": "待领取",
@@ -202,7 +203,7 @@ export const STATUS_TEXT: Record<string, string> = {
 /**
  * 状态颜色 — 仅供文档参考，实际渲染在组件中用条件 class 实现
  * （Tailwind JIT 无法检测动态 class 字符串）
- * pending/待领取 → 淡蓝 | purchased/已领取 → 淡绿 | soldout → 淡红
+ * pending/待领取 → 淡蓝 | 已买待取 → 淡紫 | purchased/已领取 → 淡绿 | soldout → 淡红
  */
 
 /**

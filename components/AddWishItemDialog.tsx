@@ -14,8 +14,8 @@ import { parseCPPProductReference } from "@/lib/cpp-link";
 import { detectWishItemType } from "@/lib/cpp-item-mapping";
 import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, type NormalizedCPPItem, type Priority, type WishItem } from "@/lib/types";
 import { getWishItemVenue } from "@/lib/wish-item-sort";
-import { readImageFileAsDataUrl } from "@/lib/image-file-reader";
 import { ImageUploadProgress } from "@/components/ImageUploadProgress";
+import { uploadWishItemImage, WISH_ITEM_IMAGE_MAX_BYTES } from "@/lib/wish-item-image-upload";
 
 type NewWishItem = Omit<WishItem, "id">;
 type LookupState = "idle" | "loading" | "success" | "not-found" | "error";
@@ -81,7 +81,17 @@ export function AddWishItemDialog({
   const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lookupSequenceRef = useRef(0);
+
+  useEffect(() => {
+    const resetScroll = () => {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    };
+    resetScroll();
+    const frame = window.requestAnimationFrame(resetScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -157,14 +167,14 @@ export function AddWishItemDialog({
       setLookupMessage("请选择图片文件。");
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > WISH_ITEM_IMAGE_MAX_BYTES) {
       setLookupState("error");
-      setLookupMessage("图片大小不能超过 2MB。");
+      setLookupMessage("图片大小不能超过 5MB。");
       return;
     }
     try {
-      const dataUrl = await readImageFileAsDataUrl(file, setImageUploadProgress);
-      setImageUrl(dataUrl);
+      const uploadedUrl = await uploadWishItemImage(eventId, file, setImageUploadProgress);
+      setImageUrl(uploadedUrl);
       window.setTimeout(() => setImageUploadProgress(null), 800);
     } catch (error) {
       setImageUploadProgress(null);
@@ -236,7 +246,7 @@ export function AddWishItemDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-item-title"
-        className="flex max-h-[94dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-3xl"
+        className="flex max-h-[94vh] max-h-[94dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-3xl"
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-7">
           <div>
@@ -248,7 +258,7 @@ export function AddWishItemDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-7">
+        <div ref={scrollContainerRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-7">
           <div>
             <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="CPP 制品识别方式">
               {CPP_REFERENCE_MODES.map((mode) => (

@@ -31,6 +31,15 @@ test("CPFZ 只接受活动 7166、日期 7940 和完整 16 类目", () => {
   assert.throws(() => parseCPPEventPage(page({ categories: types.slice(1) }), target));
 });
 
+test("CPFZ 分页计数漂移最多重扫三轮，仍不完整则停止写入", () => {
+  const source = readFileSync(new URL("../scripts/sync-cpg.mjs", import.meta.url), "utf8");
+  assert.match(source, /const maxPasses = targetName === "cpfz" \? 3 : 1/);
+  assert.match(source, /rows\.size !== declaredTotal \|\| duplicateIds > 0/);
+  assert.match(source, /if \(pass === maxPasses \|\| declaredTotal >= 10000\) throw new Error\(problem\)/);
+  assert.match(source, /if \(targetName === "cpfz" && sourceById\.size !== scanned\.length\) throw/);
+  assert.match(source, /if \(!values\.dryRun && changed\.length > 0\) await upsert/);
+});
+
 test("新增 list 默认 CPFZ，CP33 不可选，CP32 不再提供入口", () => {
   const source = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /useState\("cpfz"\)/);

@@ -262,35 +262,47 @@ function searchRow(item, dayId, type) {
 }
 
 async function scanType(cookie, dayId, type) {
-  const rows = new Map();
-  let pageIndex = 1;
-  let declaredTotal = null;
-  while (true) {
-    const url = new URL("/api/doujinshi/search.do", CPP_ORIGIN);
-    url.search = new URLSearchParams({ eventId: dayId, keyword: "", orderBy: "0", typeIds: String(type.id), pageIndex: String(pageIndex), pageSize: String(PAGE_SIZE), sellStatus: "", ideaType: "", tag: "", ideaStatus: "" });
-    const body = await cppRequest(url, { headers: { Accept: "application/json", Cookie: cookie, "User-Agent": `CP-List-Helper-${DATABASE_EVENT_ID}-Sync/1.0` } }, `${type.name} 第 ${pageIndex} 页`);
-    let json;
-    try {
-      json = JSON.parse(body);
-    } catch {
-      throw new Error(`${type.name} 第 ${pageIndex} 页 JSON 无效`);
+  const maxPasses = targetName === "cpfz" ? 3 : 1;
+  for (let pass = 1; pass <= maxPasses; pass += 1) {
+    const rows = new Map();
+    let pageIndex = 1;
+    let declaredTotal = null;
+    let duplicateIds = 0;
+    while (true) {
+      const url = new URL("/api/doujinshi/search.do", CPP_ORIGIN);
+      url.search = new URLSearchParams({ eventId: dayId, keyword: "", orderBy: "0", typeIds: String(type.id), pageIndex: String(pageIndex), pageSize: String(PAGE_SIZE), sellStatus: "", ideaType: "", tag: "", ideaStatus: "" });
+      const body = await cppRequest(url, { headers: { Accept: "application/json", Cookie: cookie, "User-Agent": `CP-List-Helper-${DATABASE_EVENT_ID}-Sync/1.0` } }, `${type.name} 第 ${pageIndex} 页`);
+      let json;
+      try {
+        json = JSON.parse(body);
+      } catch {
+        throw new Error(`${type.name} 第 ${pageIndex} 页 JSON 无效`);
+      }
+      if (json?.isSuccess !== true || !Array.isArray(json?.result?.list)) throw new Error(`${type.name} 第 ${pageIndex} 页响应无效`);
+      const list = json.result.list;
+      if (declaredTotal == null && Number.isSafeInteger(json.result.total)) declaredTotal = json.result.total;
+      if (list.length === 0) break;
+      for (const item of list) {
+        const row = searchRow(item, dayId, type);
+        if (row) {
+          if (rows.has(row.doujinshi_id)) duplicateIds += 1;
+          rows.set(row.doujinshi_id, row);
+        }
+      }
+      pageIndex += 1;
+      if (pageIndex > 2000) throw new Error(`${type.name} 分页超过合理上限`);
     }
-    if (json?.isSuccess !== true || !Array.isArray(json?.result?.list)) throw new Error(`${type.name} 第 ${pageIndex} 页响应无效`);
-    const list = json.result.list;
-    if (declaredTotal == null && Number.isSafeInteger(json.result.total)) declaredTotal = json.result.total;
-    if (list.length === 0) break;
-    for (const item of list) {
-      const row = searchRow(item, dayId, type);
-      if (row) rows.set(row.doujinshi_id, row);
+    if (targetName === "cpfz" && (declaredTotal == null || declaredTotal >= 10000 || rows.size !== declaredTotal || duplicateIds > 0)) {
+      const problem = `${type.name} 扫描不完整：页面报告 ${declaredTotal}，有效去重 ${rows.size}，重复 ${duplicateIds}`;
+      if (pass === maxPasses || declaredTotal >= 10000) throw new Error(problem);
+      console.warn(`  ${problem}；重新扫描第 ${pass + 1}/${maxPasses} 次`);
+      await wait(pass * 2000);
+      continue;
     }
-    pageIndex += 1;
-    if (pageIndex > 2000) throw new Error(`${type.name} 分页超过合理上限`);
+    console.log(`  ${type.name}: ${rows.size}${declaredTotal == null ? "" : ` / 页面报告 ${declaredTotal}`}`);
+    return [...rows.values()];
   }
-  if (targetName === "cpfz" && (declaredTotal == null || declaredTotal >= 10000 || rows.size !== declaredTotal)) {
-    throw new Error(`${type.name} 扫描不完整：页面报告 ${declaredTotal}，有效去重 ${rows.size}`);
-  }
-  console.log(`  ${type.name}: ${rows.size}${declaredTotal == null ? "" : ` / 页面报告 ${declaredTotal}`}`);
-  return [...rows.values()];
+  throw new Error(`${type.name} 扫描未完成`);
 }
 
 function parseDetail(html) {

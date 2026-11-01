@@ -3,11 +3,20 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { parseCPGEventPage } from "./cpp-snapshot-core.mjs";
+import { parseCPPEventPage } from "./cpp-snapshot-core.mjs";
 
 const CPP_ORIGIN = "https://www.allcpp.cn";
-const SOURCE_EVENT_ID = "7073";
-const DATABASE_EVENT_ID = "cpg08";
+const TARGETS = {
+  cpg08: { sourceEventId: "7073", databaseEventId: "cpg08" },
+  cpfz: { sourceEventId: "7166", databaseEventId: "cpfz", dayId: "7940" },
+};
+const targetArgument = process.argv.indexOf("--target");
+const targetEqualsArgument = process.argv.find((argument) => argument.startsWith("--target="));
+const targetName = targetArgument === -1
+  ? targetEqualsArgument?.slice("--target=".length) || "cpg08"
+  : process.argv[targetArgument + 1];
+if (!Object.hasOwn(TARGETS, targetName)) throw new Error("仅支持 cpg08 或 cpfz 同步目标");
+const { sourceEventId: SOURCE_EVENT_ID, databaseEventId: DATABASE_EVENT_ID } = TARGETS[targetName];
 const PAGE_SIZE = 1000;
 const SEARCH_WORKERS = 4;
 const DETAIL_WORKERS = 8;
@@ -22,6 +31,8 @@ const WRITE_FIELDS = [
   "normalized_product", "normalized_author", "booth_aliases", "product_aliases",
   "source_updated_at",
 ];
+
+class DetailUnavailableError extends Error {}
 
 let cppRequestQueue = Promise.resolve();
 let detailRequestQueue = Promise.resolve();
@@ -79,7 +90,9 @@ function boothAliases(value) {
 }
 
 function cacheDirectory(dayId) {
-  return path.resolve(".tmp", "cpg-sync", dayId);
+  return targetName === "cpg08"
+    ? path.resolve(".tmp", "cpg-sync", dayId)
+    : path.resolve(".tmp", "cpp-sync", DATABASE_EVENT_ID, dayId);
 }
 
 function cacheFile(dayId, typeId) {
@@ -109,7 +122,9 @@ function loadCachedDetail(dayId, doujinshiId) {
   const filename = detailCacheFile(dayId, doujinshiId);
   if (!existsSync(filename) || Date.now() - statSync(filename).mtimeMs > CACHE_MAX_AGE_MS) return null;
   const cached = JSON.parse(readFileSync(filename, "utf8"));
-  return cached?.doujinshiId === doujinshiId && cached?.detail && typeof cached.detail === "object" ? cached.detail : null;
+  if (cached?.doujinshiId !== doujinshiId || !cached?.detail || typeof cached.detail !== "object") return null;
+  if (targetName === "cpfz" && !nonEmpty(cached.detail.exchange_type) && !nonEmpty(cached.detail.description)) return null;
+  return cached.detail;
 }
 
 function saveCachedDetail(dayId, doujinshiId, detail) {
@@ -135,7 +150,14 @@ function sameValue(left, right) {
 
 async function request(url, options, label) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(20000) });
+    let response;
+    try {
+      response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(20000) });
+    } catch (error) {
+      if (attempt === 3) throw new Error(`${label} 请求失败：${error.message}`);
+      await wait(attempt * 1000);
+      continue;
+    }
     if (response.ok) return response;
     if (![429, 502, 503, 504].includes(response.status) || attempt === 3) {
       const body = await response.text();
@@ -149,8 +171,17 @@ async function request(url, options, label) {
 async function cppRequest(url, options, label) {
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await waitForCppTurn();
-    const response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(20000) });
-    if (response.ok) return response;
+    let response;
+    let body;
+    try {
+      response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(20000) });
+      if (response.ok) body = await response.text();
+    } catch (error) {
+      if (attempt === 8) throw new Error(`${label} 请求失败：${error.message}`);
+      await wait(attempt * 2000);
+      continue;
+    }
+    if (response.ok) return body;
     if (![429, 502, 503, 504].includes(response.status) || attempt === 8) throw new Error(`${label} HTTP ${response.status}`);
     const retryAfter = Number(response.headers.get("retry-after"));
     await wait(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : attempt * 2000);
@@ -161,8 +192,17 @@ async function cppRequest(url, options, label) {
 async function detailRequest(url, options, label) {
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await waitForDetailTurn();
-    const response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(20000) });
-    if (response.ok) return response;
+    let response;
+    let body;
+    try {
+      response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(20000) });
+      if (response.ok) body = await response.text();
+    } catch (error) {
+      if (attempt === 8) throw new Error(`${label} 请求失败：${error.message}`);
+      await wait(attempt * 2000);
+      continue;
+    }
+    if (response.ok) return body;
     if (![429, 502, 503, 504].includes(response.status) || attempt === 8) throw new Error(`${label} HTTP ${response.status}`);
     const retryAfter = Number(response.headers.get("retry-after"));
     await wait(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : attempt * 2000);
@@ -185,10 +225,13 @@ async function mapPool(items, workers, task) {
 }
 
 async function discover(cookie) {
-  const response = await cppRequest(`${CPP_ORIGIN}/allcpp/event/eventdoujinshi.do?event=${SOURCE_EVENT_ID}`, {
-    headers: { Accept: "text/html", Cookie: cookie, "User-Agent": "CP-List-Helper-CPG-Sync/1.0" },
-  }, "CPG 活动页");
-  return parseCPGEventPage(await response.text());
+  const html = await cppRequest(`${CPP_ORIGIN}/allcpp/event/eventdoujinshi.do?event=${SOURCE_EVENT_ID}`, {
+    headers: { Accept: "text/html", Cookie: cookie, "User-Agent": `CP-List-Helper-${DATABASE_EVENT_ID}-Sync/1.0` },
+  }, `${DATABASE_EVENT_ID} 活动页`);
+  return parseCPPEventPage(html, {
+    sourceEventId: SOURCE_EVENT_ID,
+    databaseEventId: DATABASE_EVENT_ID,
+  });
 }
 
 function searchRow(item, dayId, type) {
@@ -225,8 +268,13 @@ async function scanType(cookie, dayId, type) {
   while (true) {
     const url = new URL("/api/doujinshi/search.do", CPP_ORIGIN);
     url.search = new URLSearchParams({ eventId: dayId, keyword: "", orderBy: "0", typeIds: String(type.id), pageIndex: String(pageIndex), pageSize: String(PAGE_SIZE), sellStatus: "", ideaType: "", tag: "", ideaStatus: "" });
-    const response = await cppRequest(url, { headers: { Accept: "application/json", Cookie: cookie, "User-Agent": "CP-List-Helper-CPG-Sync/1.0" } }, `${type.name} 第 ${pageIndex} 页`);
-    const json = await response.json();
+    const body = await cppRequest(url, { headers: { Accept: "application/json", Cookie: cookie, "User-Agent": `CP-List-Helper-${DATABASE_EVENT_ID}-Sync/1.0` } }, `${type.name} 第 ${pageIndex} 页`);
+    let json;
+    try {
+      json = JSON.parse(body);
+    } catch {
+      throw new Error(`${type.name} 第 ${pageIndex} 页 JSON 无效`);
+    }
     if (json?.isSuccess !== true || !Array.isArray(json?.result?.list)) throw new Error(`${type.name} 第 ${pageIndex} 页响应无效`);
     const list = json.result.list;
     if (declaredTotal == null && Number.isSafeInteger(json.result.total)) declaredTotal = json.result.total;
@@ -237,6 +285,9 @@ async function scanType(cookie, dayId, type) {
     }
     pageIndex += 1;
     if (pageIndex > 2000) throw new Error(`${type.name} 分页超过合理上限`);
+  }
+  if (targetName === "cpfz" && (declaredTotal == null || declaredTotal >= 10000 || rows.size !== declaredTotal)) {
+    throw new Error(`${type.name} 扫描不完整：页面报告 ${declaredTotal}，有效去重 ${rows.size}`);
   }
   console.log(`  ${type.name}: ${rows.size}${declaredTotal == null ? "" : ` / 页面报告 ${declaredTotal}`}`);
   return [...rows.values()];
@@ -252,10 +303,17 @@ function parseDetail(html) {
 }
 
 async function fetchDetail(cookie, doujinshiId) {
-  const response = await detailRequest(`${CPP_ORIGIN}/d/${doujinshiId}.do`, {
-    headers: { Accept: "text/html", Cookie: cookie, "User-Agent": "CP-List-Helper-CPG-Sync/1.0" },
+  const html = await detailRequest(`${CPP_ORIGIN}/d/${doujinshiId}.do`, {
+    headers: { Accept: "text/html", Cookie: cookie, "User-Agent": `CP-List-Helper-${DATABASE_EVENT_ID}-Sync/1.0` },
   }, `制品 ${doujinshiId} 详情`);
-  return parseDetail(await response.text());
+  if (!html.includes("djs-info") || /#\/login\/main/.test(html)) {
+    throw new DetailUnavailableError(`制品 ${doujinshiId} 详情页面无效`);
+  }
+  const detail = parseDetail(html);
+  if (targetName === "cpfz" && !nonEmpty(detail.exchange_type) && !nonEmpty(detail.description)) {
+    throw new DetailUnavailableError(`制品 ${doujinshiId} 详情字段为空`);
+  }
+  return detail;
 }
 
 function supabaseConfig() {
@@ -278,7 +336,7 @@ async function selectExisting(config, dayId) {
     url.searchParams.set("order", "doujinshi_id.asc");
     url.searchParams.set("offset", String(rows.length));
     url.searchParams.set("limit", "1000");
-    const response = await request(url, { headers: config.headers }, "读取 Supabase CPG 数据");
+    const response = await request(url, { headers: config.headers }, `读取 Supabase ${DATABASE_EVENT_ID} 数据`);
     const page = await response.json();
     if (!Array.isArray(page)) throw new Error("Supabase 返回格式无效");
     rows.push(...page);
@@ -342,7 +400,7 @@ async function upsert(config, rows) {
       method: "POST",
       headers: { ...config.headers, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(batch),
-    }, "写入 Supabase CPG 数据");
+    }, `写入 Supabase ${DATABASE_EVENT_ID} 数据`);
     await response.text();
   }
 }
@@ -353,13 +411,17 @@ async function main() {
   const { values } = parseArgs({ options: {
     dryRun: { type: "boolean", default: false },
     fullDetails: { type: "boolean", default: false },
+    scanOnly: { type: "boolean", default: false },
+    target: { type: "string" },
   } });
   const startedAt = Date.now();
   const cookie = cookieHeader();
-  const database = supabaseConfig();
   const manifest = await discover(cookie);
   const dayId = manifest.dayIds[0];
-  console.log(`CPG08 day=${dayId}，扫描 ${manifest.types.length} 个类目`);
+  if (TARGETS[targetName].dayId && dayId !== TARGETS[targetName].dayId) {
+    throw new Error(`${targetName} day 不符：期望 ${TARGETS[targetName].dayId}，发现 ${dayId}`);
+  }
+  console.log(`${DATABASE_EVENT_ID} day=${dayId}，扫描 ${manifest.types.length} 个类目`);
 
   const scanned = (await mapPool(manifest.types, SEARCH_WORKERS, async (type) => {
     const cached = loadCachedType(dayId, type);
@@ -372,17 +434,38 @@ async function main() {
     return rows;
   })).flat();
   const sourceById = new Map(scanned.map((row) => [row.doujinshi_id, row]));
+  if (targetName === "cpfz" && sourceById.size !== scanned.length) throw new Error("跨类目存在重复制品，停止写入并请人工检查");
+  if (values.scanOnly) {
+    console.log(JSON.stringify({ mode: "scan-only", sourceEventId: SOURCE_EVENT_ID, eventId: DATABASE_EVENT_ID, dayId, categories: manifest.types.length, scanned: sourceById.size, elapsedSeconds: Math.round((Date.now() - startedAt) / 1000) }, null, 2));
+    return;
+  }
+  const database = supabaseConfig();
   const existing = await selectExisting(database, dayId);
   const existingById = new Map(existing.map((row) => [Number(row.doujinshi_id), row]));
 
-  const detailTargets = [...sourceById.values()].filter((source) => values.fullDetails || !existingById.has(source.doujinshi_id));
-  console.log(`详情更新目标：${detailTargets.length}${values.fullDetails ? "（人工全量刷新）" : "（全部新增制品）"}`);
+  const detailTargets = [...sourceById.values()].filter((source) => {
+    const current = existingById.get(source.doujinshi_id);
+    return values.fullDetails || !current || (targetName === "cpfz" && !nonEmpty(current.exchange_type));
+  });
+  console.log(`详情更新目标：${detailTargets.length}${values.fullDetails ? "（人工全量刷新）" : targetName === "cpfz" ? "（新增或缺失交换类型）" : "（全部新增制品）"}`);
+  const detailFailures = [];
+  const detailUnavailable = [];
   const detailResults = await mapPool(detailTargets, DETAIL_WORKERS, async (row) => {
     const cached = loadCachedDetail(dayId, row.doujinshi_id);
     if (cached) return [row.doujinshi_id, cached];
-    const detail = await fetchDetail(cookie, row.doujinshi_id);
-    saveCachedDetail(dayId, row.doujinshi_id, detail);
-    return [row.doujinshi_id, detail];
+    try {
+      const detail = await fetchDetail(cookie, row.doujinshi_id);
+      saveCachedDetail(dayId, row.doujinshi_id, detail);
+      return [row.doujinshi_id, detail];
+    } catch (error) {
+      if (targetName === "cpfz" && error instanceof DetailUnavailableError) {
+        detailUnavailable.push(row.doujinshi_id);
+        return [row.doujinshi_id, null];
+      }
+      if (targetName !== "cpfz" || /HTTP (401|403)/.test(error.message)) throw error;
+      detailFailures.push({ id: row.doujinshi_id, error: error.message });
+      return [row.doujinshi_id, null];
+    }
   });
   const details = new Map(detailResults);
   const now = new Date().toISOString();
@@ -410,7 +493,7 @@ async function main() {
 
   if (!values.dryRun && changed.length > 0) await upsert(database, changed);
   const databaseCount = values.dryRun ? existing.length : (await selectExisting(database, dayId)).length;
-  if (!values.dryRun) rmSync(cacheDirectory(dayId), { recursive: true, force: true });
+  if (!values.dryRun && detailFailures.length === 0) rmSync(cacheDirectory(dayId), { recursive: true, force: true });
   console.log(JSON.stringify({
     mode: values.dryRun ? "dry-run" : "write",
     sourceEventId: SOURCE_EVENT_ID,
@@ -422,13 +505,22 @@ async function main() {
     inserted,
     updated,
     unchanged,
+    detailUnavailable: detailUnavailable.length,
+    detailFailures: detailFailures.length,
     written: values.dryRun ? 0 : changed.length,
     databaseAfter: databaseCount,
     elapsedSeconds: Math.round((Date.now() - startedAt) / 1000),
   }, null, 2));
+  if (detailUnavailable.length > 0) {
+    console.warn(`CPFZ 源站详情不可用 ${detailUnavailable.length} 条，示例 ID：${detailUnavailable.slice(0, 10).join(", ")}`);
+  }
+  if (detailFailures.length > 0) {
+    console.error(`CPFZ 详情抓取失败 ${detailFailures.length} 条，示例 ID：${detailFailures.slice(0, 10).map((entry) => entry.id).join(", ")}`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {
-  console.error(`CPG 同步失败：${error.message}`);
+  console.error(`${DATABASE_EVENT_ID} 同步失败：${error.message}`);
   process.exitCode = 1;
 });

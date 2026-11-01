@@ -21,6 +21,8 @@ import {
   CheckCircle,
   Info,
   ArrowsClockwise,
+  CloudArrowUp,
+  CloudSlash,
 } from "@phosphor-icons/react";
 import type { WishItem, MatchResult, MatchInput } from "@/lib/types";
 import { NOTE_MAX_LENGTH, OPEN_INFO_MAX_LENGTH, STATUS_TEXT, PRIORITY_ORDER, PRIORITY_COLOR } from "@/lib/types";
@@ -103,7 +105,30 @@ async function imageUrlToExcelImage(
     const response = await fetch(imageUrl);
     if (!response.ok) return null;
 
-    const blob = await response.blob();
+    let blob = await response.blob();
+    if (blob.type === "image/webp") {
+      // ExcelJS does not accept WebP bytes, even when the filename ends in PNG.
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const image = new Image();
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error("图片无法读取"));
+          image.src = objectUrl;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        if (!context) return null;
+        context.drawImage(image, 0, 0);
+        const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!png) return null;
+        blob = png;
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
     const mime = blob.type || "image/png";
     const extension = mime.includes("jpeg") || mime.includes("jpg")
       ? "jpeg"
@@ -148,6 +173,15 @@ export default function ExhibitDetail() {
     refresh,
     useLatestConflict,
     keepMyConflict,
+    manualOffline,
+    offlinePrepared,
+    offlinePagePrepared,
+    offlinePreparedAt,
+    offlinePendingCount,
+    offlineSyncing,
+    offlineMessage,
+    enterManualOffline,
+    exitManualOfflineAndSync,
   } = useExhibitData(eventId);
 
   const [searchKeyword, setSearchKeyword] = useState("");
@@ -176,6 +210,7 @@ export default function ExhibitDetail() {
   const [syncingCPPData, setSyncingCPPData] = useState(false);
   const [cppSyncMessage, setCppSyncMessage] = useState("");
   const [isCppSyncModalOpen, setIsCppSyncModalOpen] = useState(false);
+  const [isOfflineModalOpen, setIsOfflineModalOpen] = useState(false);
   const [imageProgressByItem, setImageProgressByItem] = useState<Record<string, number>>({});
   const imageProcessing = Object.keys(imageProgressByItem).length > 0;
 
@@ -217,12 +252,12 @@ export default function ExhibitDetail() {
   }, [eventId]);
 
   useEffect(() => {
-    if (!membership) return;
+    if (!membership || manualOffline) return;
     void loadShareCode();
-  }, [membership, loadShareCode]);
+  }, [membership, loadShareCode, manualOffline]);
 
   useEffect(() => {
-    if (!eventInfo?.cppEventId) return;
+    if (!eventInfo?.cppEventId || manualOffline) return;
     let cancelled = false;
     void getLatestCPPDataTimestamp(eventInfo.cppEventId)
       .then((timestamp) => {
@@ -232,7 +267,7 @@ export default function ExhibitDetail() {
         if (!cancelled) setLatestCPPDataAt(null);
       });
     return () => { cancelled = true; };
-  }, [eventInfo?.cppEventId]);
+  }, [eventInfo?.cppEventId, manualOffline]);
 
   const cppSyncDateText = latestCPPDataAt
     ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", timeZone: "Asia/Shanghai" })
@@ -348,6 +383,7 @@ export default function ExhibitDetail() {
   };
 
   const handleMobileAddItem = () => {
+    if (manualOffline) return;
     dirtyItemIdsRef.current.clear();
     setEditMode(true);
     setIsAddItemDialogOpen(true);
@@ -356,6 +392,16 @@ export default function ExhibitDetail() {
   const handleCreateItem = async (item: Omit<WishItem, "id">) => {
     await addItem(item);
     setCurrentPage(Math.max(1, Math.ceil((items.length + 1) / PAGE_SIZE)));
+  };
+
+  const handleConfirmOfflineMode = async () => {
+    try {
+      if (manualOffline) await exitManualOfflineAndSync();
+      else await enterManualOffline();
+      setIsOfflineModalOpen(false);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "离线模式操作失败");
+    }
   };
 
   const handleUpdateItem = async (id: string, field: keyof WishItem, value: any) => {
@@ -992,7 +1038,7 @@ export default function ExhibitDetail() {
               <button
                 onClick={() => void handleToggleEditMode()}
                 disabled={savingEdits || imageProcessing}
-                className={`order-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm ${
+                className={`order-1 hidden shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 sm:order-none sm:flex sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm ${
                   editMode
                     ? "bg-amber-500 text-white shadow-md ring-2 ring-amber-200 hover:bg-amber-600"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -1003,11 +1049,25 @@ export default function ExhibitDetail() {
                 {editMode ? <Check className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
                 <span className="hidden sm:inline">{imageProcessing ? "图片处理中..." : savingEdits ? "保存中..." : editMode ? "保存并退出" : "编辑模式"}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setIsOfflineModalOpen(true)}
+                disabled={!manualOffline && !offlinePrepared}
+                className={`order-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors disabled:cursor-wait disabled:opacity-50 sm:hidden ${
+                  manualOffline
+                    ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+                aria-label={manualOffline ? "结束离线并同步" : "进入离线模式"}
+                title={manualOffline ? "结束离线并同步" : offlinePrepared ? "进入离线模式" : "正在准备离线数据"}
+              >
+                {manualOffline ? <CloudArrowUp className="h-4 w-4" /> : <CloudSlash className="h-4 w-4" />}
+              </button>
               {eventInfo?.cppEventId && (
                 <button
                   type="button"
                   onClick={() => setIsCppSyncModalOpen(true)}
-                  disabled={syncingCPPData}
+                  disabled={syncingCPPData || manualOffline}
                   className="order-2 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-50 sm:hidden"
                   aria-label="拉取 CPP 最新数据"
                   title="拉取 CPP 最新数据"
@@ -1017,7 +1077,8 @@ export default function ExhibitDetail() {
               )}
               <button
                 onClick={() => setIsUploadModalOpen(true)}
-                className="order-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs text-white transition-colors hover:bg-indigo-700 sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm"
+                disabled={manualOffline}
+                className="order-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm"
                 aria-label="上传"
                 title="上传"
               >
@@ -1026,7 +1087,7 @@ export default function ExhibitDetail() {
               </button>
               <button
                 onClick={handleExport}
-                disabled={exporting}
+                disabled={exporting || manualOffline}
                 className="order-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-xs text-slate-900 transition-colors hover:bg-rose-200 disabled:opacity-50 sm:order-none sm:h-auto sm:w-auto sm:gap-1 sm:px-4 sm:py-2 sm:text-sm"
                 aria-label={exporting ? "导出中" : "导出"}
                 title={exporting ? "导出中" : "导出"}
@@ -1046,6 +1107,27 @@ export default function ExhibitDetail() {
           </div>
         </div>
       </header>
+
+      {manualOffline && (
+        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:hidden">
+          <div className="mx-auto flex max-w-md items-center justify-between gap-3">
+            <span className="font-medium">离线模式 · {offlinePendingCount} 项修改待同步</span>
+            <button
+              type="button"
+              onClick={() => setIsOfflineModalOpen(true)}
+              className="shrink-0 rounded-full border border-amber-300 bg-white px-3 py-1 font-medium"
+            >
+              结束并同步
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!manualOffline && offlineMessage && (
+        <div className="border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-800 sm:hidden">
+          {offlineMessage}
+        </div>
+      )}
 
       {eventInfo?.cppEventId && (
         <div className="hidden shrink-0 border-b border-slate-200 bg-white sm:block">
@@ -1182,6 +1264,7 @@ export default function ExhibitDetail() {
             onUpdateItem={handleUpdateItem}
             onSaveItem={handleSaveMobileItem}
             onRemoveItem={handleRemoveItem}
+            manualOffline={manualOffline}
           />
         </div>
       </div>
@@ -1582,7 +1665,7 @@ export default function ExhibitDetail() {
         </div>
       )}
 
-      {!editMode && (
+      {!editMode && !manualOffline && (
         <button
           type="button"
           onClick={handleMobileAddItem}
@@ -1592,6 +1675,77 @@ export default function ExhibitDetail() {
         >
           <Plus className="h-5 w-5" />
         </button>
+      )}
+
+      {isOfflineModalOpen && (
+        <div
+          className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/40 p-3 sm:hidden"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !offlineSyncing) setIsOfflineModalOpen(false);
+          }}
+        >
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {manualOffline ? "结束离线并同步" : "进入离线模式"}
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {manualOffline
+                    ? "请确认当前网络稳定。所有本机修改同步成功后，才会恢复在线模式。"
+                    : offlinePagePrepared
+                      ? "完整离线已准备好。进入后可以断网查看和修改，也可以关闭或刷新页面。"
+                      : "基础离线已准备好。进入后可以断网查看和修改，请保持当前页面打开。"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOfflineModalOpen(false)}
+                disabled={offlineSyncing}
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500 disabled:opacity-50"
+                aria-label="关闭"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+              {manualOffline ? (
+                <>
+                  <p>待同步修改：<strong>{offlinePendingCount} 项</strong></p>
+                  <p>同步失败时仍会保持离线，本机修改不会被清除。</p>
+                </>
+              ) : (
+                <>
+                  <p>已保存展品：<strong>{items.length} 件</strong></p>
+                  <p>
+                    离线数据时间：{offlinePreparedAt
+                      ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(offlinePreparedAt))
+                      : "准备中"}
+                  </p>
+                  <p>离线期间支持状态、数量、价格、优先级、开摊信息和备注修改。</p>
+                  <p className={offlinePagePrepared ? "text-emerald-700" : "font-medium text-amber-700"}>
+                    {offlinePagePrepared
+                      ? "可以关闭或刷新页面，联网后再同步。"
+                      : "当前浏览器仅支持基础离线。请勿关闭或刷新页面；本地修改会保留，恢复网络后可重新打开并同步。"}
+                  </p>
+                </>
+              )}
+              {offlineMessage && manualOffline && <p className="mt-2 font-medium text-amber-700">{offlineMessage}</p>}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleConfirmOfflineMode()}
+              disabled={offlineSyncing || (!manualOffline && !offlinePrepared)}
+              className="ui-btn-primary mt-5 flex min-h-11 w-full items-center justify-center gap-2 disabled:cursor-wait disabled:opacity-50"
+            >
+              {manualOffline ? <CloudArrowUp className="h-5 w-5" /> : <CloudSlash className="h-5 w-5" />}
+              {offlineSyncing ? "正在同步…" : manualOffline ? "确认同步并恢复在线" : "确认进入离线模式"}
+            </button>
+          </div>
+        </div>
       )}
 
       {isAddItemDialogOpen && (

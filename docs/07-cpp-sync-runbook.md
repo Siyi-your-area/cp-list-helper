@@ -358,7 +358,7 @@ npm.cmd run sync:cpg -- --fullDetails
 ```
 
 无参数执行一次完整的 16 类目扫描，并直接对 `cpp_items` 做增量 upsert；`--dryRun`
-只计算变化，不写数据库；每两日自动任务必须抓取全部新增制品的详情与交换类型，
+只计算变化，不写数据库；每日自动任务必须抓取全部新增制品的详情与交换类型，
 详情阶段使用独立的 8 路并发和 200ms 请求启动间隔，不受搜索分页的 600ms
 全局间隔影响。完成类目和成功详情会在 `.tmp/cpg-sync/` 保存最长 6 小时的本轮
 断点；失败重跑只读取未完成内容，成功写库后自动删除断点。`--fullDetails`
@@ -368,7 +368,27 @@ npm.cmd run sync:cpg -- --fullDetails
 description 只有非空时覆盖；exchange_type 只有明确识别为有偿或无料时覆盖；
 hot_count 的有效非负数字（包括 0）直接更新；来源暂时未出现的旧记录不删除。
 
-`.github/workflows/sync-cpg.yml` 在北京时间约 03:00 每两日运行，并支持 GitHub
+`.github/workflows/sync-cpg.yml` 在北京时间约 03:00 每日运行，并支持 GitHub
 Actions 手动触发。需要仓库 Secrets：`CPP_COOKIE_JSON`、`SUPABASE_URL`、
 `SUPABASE_CPP_SYNC_KEY`。本地运行会读取已忽略的 `.dev.vars`、`.env.local` 和
 `cpp-cookies.json`，但不会输出这些内容。
+
+## 13. CPFZ 官方制品同步
+
+CPFZ CPP 活动编号为 `7166`，当前唯一展会 day 为 `7940`。使用相同的 16 类目
+动态发现与逐类分页扫描；每类有效去重条数必须等于 CPP 报告数，且单类达到
+`10000` 上限时停止写入，不把被截断的目录当作完整数据。
+
+```powershell
+npm.cmd run sync:cpfz -- --scanOnly
+npm.cmd run sync:cpfz
+```
+
+首条命令只扫描和校验，不连接数据库；第二条只增量写入 `cpp_items` 的 `cpfz`
+范围。源站详情页不可用的制品会单独计数，保留其已扫描到的目录数据和原有有效字段，
+下一轮再尝试；网络等抓取故障会使任务失败并留下断点重试。不删除来源暂时缺失的旧记录。
+`.github/workflows/sync-cpfz.yml` 在北京时间约 04:00 每日运行，使用与 CPG08
+相同的三个 Secrets。该定时任务须在代码推送至默认分支后才会生效。
+
+旧 CP32 list 与用户状态仍保留；只有用户完成本地验收后，才允许单独删除
+`cpp_items` 的 `cp32/7040` 与 `cp32/7042` 官方制品库记录。

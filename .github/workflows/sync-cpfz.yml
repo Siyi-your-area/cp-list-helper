@@ -1,0 +1,39 @@
+name: Sync CPFZ data
+
+on:
+  schedule:
+    # UTC 20:00 = 北京时间次日 04:00；与 CPG08 错峰。
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+    inputs:
+      full_details:
+        description: Refresh details for every CPFZ item
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-cpfz
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Update CPFZ items
+        env:
+          CPP_COOKIE_JSON: ${{ secrets.CPP_COOKIE_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_CPP_SYNC_KEY: ${{ secrets.SUPABASE_CPP_SYNC_KEY }}
+          FULL_DETAILS: ${{ inputs.full_details || 'false' }}
+        run: |
+          if [ "$FULL_DETAILS" = "true" ]; then
+            npm run sync:cpfz -- --fullDetails
+          else
+            npm run sync:cpfz
+          fi

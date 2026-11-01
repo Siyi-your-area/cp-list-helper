@@ -314,7 +314,7 @@ test("CP32 非空摊位继续使用既有 MatchIndex 行为", () => {
   assert.equal(emptyBoothOnlyResult.decision, "unmatched");
 });
 
-test("路由仅为 CPG08 空摊位执行一次批量名称查询并跳过逐条回退", () => {
+test("路由仅为 CPG08、CPFZ 空摊位执行一次批量名称查询并跳过逐条回退", () => {
   const source = readFileSync(
     new URL("../app/api/cpp/match/route.ts", import.meta.url),
     "utf8"
@@ -322,7 +322,7 @@ test("路由仅为 CPG08 空摊位执行一次批量名称查询并跳过逐条�
   const calls = source.match(/getCPPItemsByNormalizedProducts\s*\(/g) || [];
 
   assert.equal(calls.length, 1);
-  assert.match(source, /if \(eventId === "cpg08"\)/);
+  assert.match(source, /if \(eventId === "cpg08" \|\| eventId === "cpfz"\)/);
   assert.match(source, /hasExplicitId: Boolean\(item\.doujinshiId\)/);
   assert.match(source, /!entry\.hasExplicitId/);
   assert.match(source, /emptyBoothHandledIndices\.add\(entry\.indexValue\)/);
@@ -378,7 +378,7 @@ test("创建导入展示阶段、计时和长等待提示，成功后进入详�
   assert.match(source, /正在匹配 CPP 制品/);
   assert.match(source, /已等待 \{createElapsedSeconds\} 秒/);
   assert.match(source, /匹配通常需要1分钟以上，请耐心等待，请勿关闭页面/);
-  assert.match(source, /router\.push\(`\/exhibit\/\$\{listId\}`\)/);
+  assert.match(source, /router\.push\(`\/exhibit\/\$\{listId\}\?edit=1`\)/);
   assert.ok(progressStart >= 0 && progressEnd > progressStart);
   assert.match(progressMarkup, /w-full/);
   assert.match(progressMarkup, /motion-safe:animate-pulse/);

@@ -50,24 +50,26 @@ const EXHIBIT_PRESETS: {
   label: string;
   cppEventId: string;
   days: { id: string; name: string }[];
+  disabled?: boolean;
 }[] = [
   {
-    id: "cp32-day1",
-    label: "CP32一期",
-    cppEventId: "cp32",
-    days: [{ id: "7040", name: "5.1-5.2" }],
-  },
-  {
-    id: "cp32-day2",
-    label: "CP32二期",
-    cppEventId: "cp32",
-    days: [{ id: "7042", name: "5.4-5.5" }],
+    id: "cpfz",
+    label: "CPFZ",
+    cppEventId: "cpfz",
+    days: [{ id: "7940", name: "11.7-11.8" }],
   },
   {
     id: "cpg08",
     label: "CPG08",
     cppEventId: "cpg08",
     days: [{ id: "7829", name: "8.22-8.23" }],
+  },
+  {
+    id: "cp33",
+    label: "CP33（尽情期待）",
+    cppEventId: "cp33",
+    days: [{ id: "", name: "12.26-12.27" }],
+    disabled: true,
   },
 ];
 
@@ -77,7 +79,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportMode, setIsImportMode] = useState(false);
-  const [selectedExhibit, setSelectedExhibit] = useState("cpg08");
+  const [selectedExhibit, setSelectedExhibit] = useState("cpfz");
   const [listName, setListName] = useState("");
   const [createUploadFile, setCreateUploadFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
@@ -135,7 +137,7 @@ export default function Home() {
 
   const openCreateModal = (importMode = false) => {
     setIsImportMode(importMode);
-    setSelectedExhibit("cpg08");
+    setSelectedExhibit("cpfz");
     setCreateStage("");
     setCreateElapsedSeconds(0);
     setIsModalOpen(true);
@@ -144,7 +146,7 @@ export default function Home() {
   const closeCreateModal = () => {
     setIsModalOpen(false);
     setIsImportMode(false);
-    setSelectedExhibit("cpg08");
+    setSelectedExhibit("cpfz");
     setListName("");
     setCreateUploadFile(null);
     setCreateStage("");
@@ -157,7 +159,7 @@ export default function Home() {
     }
 
     const preset = EXHIBIT_PRESETS.find((p) => p.id === selectedExhibit);
-    if (!preset) return;
+    if (!preset || preset.disabled) return;
 
     const trimmedListName = listName.trim();
     if (!trimmedListName) {
@@ -506,7 +508,7 @@ export default function Home() {
                   >
                     <option value="">请选择展会</option>
                     {EXHIBIT_PRESETS.map((p) => (
-                      <option key={p.id} value={p.id}>
+                      <option key={p.id} value={p.id} disabled={p.disabled}>
                         {p.label}
                       </option>
                     ))}
@@ -740,7 +742,7 @@ function CppImportCard({ onImport }: { onImport: () => void }) {
         <h3 className="text-sm font-semibold text-slate-900">从 CPP 导入</h3>
       </div>
       <p className="mb-4 text-xs leading-5 text-slate-500">
-        支持 CP32 一期 / 二期、CPG08 的 CPP 心愿单 Excel，导入时请选择对应展会。
+        支持 CPFZ、CPG08 的 CPP 心愿单 Excel，导入时请选择对应展会。
       </p>
       <button
         type="button"

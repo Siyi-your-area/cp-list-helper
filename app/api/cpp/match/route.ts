@@ -134,12 +134,12 @@ export async function POST(request: NextRequest) {
     const results = index.matchBatch(items, "database-index");
     const databaseMatchMs = elapsed(databaseMatchStart);
 
-    // CPG08 的真实导出可能没有摊位号。仅用完整标准化制品名批量取候选，
+    // CPG08/CPFZ 的真实导出可能没有摊位号。仅用完整标准化制品名批量取候选，
     // 再由严格的唯一性规则决定接受或转人工复核，避免空摊位触发逐条模糊查询。
     const emptyBoothBatchStart = performance.now();
     const emptyBoothHandledIndices = new Set<number>();
     let emptyBoothCandidates = 0;
-    if (eventId === "cpg08") {
+    if (eventId === "cpg08" || eventId === "cpfz") {
       const emptyBoothEntries = items
         .map((item, indexValue) => ({
           indexValue,
@@ -302,11 +302,11 @@ export async function POST(request: NextRequest) {
     const externalMs = elapsed(externalStart);
     const externalBudgetExceeded = performance.now() >= deadline;
 
-    // CPG 搜索/数据库快照可能缺少交换类型。匹配决策完成后，仅为已接受的
+    // CPG08/CPFZ 搜索数据可能缺少交换类型。匹配决策完成后，仅为已接受的
     // 数据库结果按制品 ID 去重尽力补详情；失败时保留匹配结果，由前端按有料处理。
     const cpgDetailStart = performance.now();
     const cpgDetailTargets = new Map<number, number[]>();
-    if (eventId === "cpg08") {
+    if (eventId === "cpg08" || eventId === "cpfz") {
       results.forEach((result, indexValue) => {
         const cppItem = result.cppItem;
         if (

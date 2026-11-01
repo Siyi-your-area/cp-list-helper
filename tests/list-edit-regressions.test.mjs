@@ -80,7 +80,7 @@ test("mobile add button enters edit mode and opens the add-item dialog", () => {
   const source = read("app/exhibit/[id]/page.tsx");
 
   assert.match(source, /const handleMobileAddItem = \(\) => \{[\s\S]{0,180}setEditMode\(true\);[\s\S]{0,80}setIsAddItemDialogOpen\(true\);/);
-  assert.match(source, /\{!editMode && \([\s\S]{0,300}onClick=\{handleMobileAddItem\}[\s\S]{0,220}sm:hidden/);
+  assert.match(source, /\{!editMode && !manualOffline && \([\s\S]{0,300}onClick=\{handleMobileAddItem\}[\s\S]{0,220}sm:hidden/);
 });
 
 test("add-item dialog has a legacy viewport fallback and always opens at the top", () => {

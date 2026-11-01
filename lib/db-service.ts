@@ -478,7 +478,7 @@ export async function getCPPItemsByBooths(
 }
 
 /**
- * 按完整 normalized_product 批量读取 CPG 空摊位候选。
+ * 按完整 normalized_product 批量读取 CPG08/CPFZ 空摊位候选。
  * 调用方传入与同步脚本相同规则生成的标准化名称；查询始终受 event/day scope 限制。
  */
 export async function getCPPItemsByNormalizedProducts(

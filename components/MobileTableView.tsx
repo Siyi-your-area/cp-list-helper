@@ -32,6 +32,7 @@ interface MobileTableViewProps {
   onUpdateItem: (id: string, field: keyof WishItem, value: any) => void;
   onSaveItem: (item: WishItem) => Promise<WishItem>;
   onRemoveItem: (id: string) => void | Promise<void>;
+  manualOffline?: boolean;
 }
 
 type FilterMode = "all" | "unpurchased";
@@ -85,7 +86,7 @@ function getStatusColor(status: string): string {
 // 组件
 // ============================================================
 
-export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRemoveItem }: MobileTableViewProps) {
+export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRemoveItem, manualOffline = false }: MobileTableViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [sortMode, setSortMode] = useState<SortMode>("default");
@@ -256,6 +257,10 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    if (manualOffline) {
+      alert("离线模式暂不支持上传图片");
+      return;
+    }
     if (!file.type.startsWith("image/")) {
       alert("请选择图片文件");
       return;
@@ -294,6 +299,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
   };
 
   const handleSwipeEnd = (event: React.PointerEvent, itemId: string) => {
+    if (manualOffline) return;
     const start = swipeStartRef.current;
     swipeStartRef.current = null;
     if (!start || start.id !== itemId) return;
@@ -472,7 +478,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                 data-item-id={item.id}
                 className="relative overflow-hidden border-b border-slate-100 last:border-b-0"
               >
-                {swipedItemId === item.id && (
+                {!manualOffline && swipedItemId === item.id && (
                   <button
                     type="button"
                     onClick={() => void handleSwipeDelete(item.id)}
@@ -625,7 +631,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                   <ImageBroken className="w-12 h-12 text-slate-300" />
                 )}
                 {/* 上传按钮 */}
-                <div className="absolute bottom-2 right-2 flex gap-2">
+                {!manualOffline && <div className="absolute bottom-2 right-2 flex gap-2">
                   <label className="bg-white/95 backdrop-blur-sm px-3 py-2 rounded-full shadow-lg cursor-pointer active:scale-95 transition-transform flex items-center gap-1.5 text-xs font-medium text-slate-700">
                     <Camera className="w-4 h-4" />
                     拍照
@@ -646,7 +652,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                       onChange={(e) => handleDrawerImageInput(e)}
                     />
                   </label>
-                </div>
+                </div>}
                 <ImageUploadProgress percent={imageUploadProgress} />
               </div>
 
@@ -925,14 +931,16 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                 {drawerEditing ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
                 {imageUploadProgress !== null ? "图片处理中" : drawerEditing ? "保存" : "编辑"}
               </button>
-              <button
-                onClick={handleDrawerDelete}
-                disabled={deletingItemId === drawerItem.id}
-                className="px-4 py-2.5 rounded-lg text-sm font-medium bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors flex items-center gap-1.5"
-              >
-                <Trash className="w-4 h-4" />
-                {deletingItemId === drawerItem.id ? "删除中" : "删除"}
-              </button>
+              {!manualOffline && (
+                <button
+                  onClick={handleDrawerDelete}
+                  disabled={deletingItemId === drawerItem.id}
+                  className="px-4 py-2.5 rounded-lg text-sm font-medium bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors flex items-center gap-1.5"
+                >
+                  <Trash className="w-4 h-4" />
+                  {deletingItemId === drawerItem.id ? "删除中" : "删除"}
+                </button>
+              )}
             </div>
           </div>
         </div>

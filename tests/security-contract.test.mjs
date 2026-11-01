@@ -348,7 +348,7 @@ test("anonymous sessions explicitly authenticate Realtime before subscribing", (
 
   const hook = read("hooks/useExhibitData.ts");
   assert.match(hook, /await ensureAnonymousSession\(\)[\s\S]*setReady\(true\)/);
-  assert.match(hook, /if \(!ready\) return;[\s\S]*\.channel\(`/);
+  assert.match(hook, /if \(!ready \|\| manualOffline\) return;[\s\S]*\.channel\(`/);
 });
 
 test("share material writes use expected-value CAS and retry on a lost race", () => {
@@ -363,7 +363,7 @@ test("share material writes use expected-value CAS and retry on a lost race", ()
 
 test("remote delete conflicts cannot recreate a wish item", () => {
   const hook = read("hooks/useExhibitData.ts");
-  const resolver = hook.match(/const keepMyConflict[\s\S]*?\n  }, \[conflicts, eventId\]\);/)?.[0] || "";
+  const resolver = hook.match(/const keepMyConflict[\s\S]*?\n  }, \[conflicts, eventId, queueOfflineWrite\]\);/)?.[0] || "";
   assert.match(resolver, /if \(!conflict\?\.remote\) return/);
   assert.doesNotMatch(resolver, /createWishItemAsync/);
   const page = read("app/exhibit/[id]/page.tsx");

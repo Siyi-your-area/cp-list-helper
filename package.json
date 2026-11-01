@@ -20,6 +20,7 @@
     "test:event6377-scanner": "node --test tests/event6377-scanner.test.mjs",
     "scan:cpg": "node scripts/scan-cpg.mjs",
     "sync:cpg": "node scripts/sync-cpg.mjs",
+    "sync:cpfz": "node scripts/sync-cpg.mjs --target cpfz",
     "sync:cpg:daily": "node scripts/sync-cpg-daily.mjs",
     "migrate:wish-item-images": "node scripts/migrate-wish-item-images.mjs",
     "promote:cpg": "node scripts/promote-cpp-snapshot.mjs",
@@ -48,6 +49,7 @@
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.31",
     "puppeteer": "^25.1.0",
+    "sharp": "0.34.5",
     "typescript": "latest",
     "wrangler": "^4.100.0"
   }

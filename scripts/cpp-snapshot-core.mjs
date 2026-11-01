@@ -68,7 +68,7 @@ function eventIdsFromText(value) {
   return Array.from(String(value).matchAll(/(?:[?&]|&amp;)event=(\d+)/gi), (match) => match[1]);
 }
 
-function currentSourceEventIds(html) {
+function currentSourceEventIds(html, expectedSourceEventId = CPG_SOURCE_EVENT_ID) {
   const explicit = [
     ...Array.from(html.matchAll(/\bdata-(?:source-|current-)event-id=["'](\d+)["']/gi), (match) => match[1]),
     ...Array.from(html.matchAll(/\b(?:sourceEventId|currentEventId)\s*=\s*["']?(\d+)["']?/g), (match) => match[1]),
@@ -86,11 +86,11 @@ function currentSourceEventIds(html) {
   const explicitIds = unique(explicit.filter(Boolean));
   if (explicitIds.length > 0) return explicitIds;
   const linkedIds = unique(eventIdsFromText(html));
-  return linkedIds.includes(CPG_SOURCE_EVENT_ID) ? [CPG_SOURCE_EVENT_ID] : linkedIds;
+  return linkedIds.includes(expectedSourceEventId) ? [expectedSourceEventId] : linkedIds;
 }
 
-export function parseCPGEventPage(html) {
-  if (typeof html !== "string" || html.trim() === "") fail("CPG 活动页面为空");
+export function parseCPPEventPage(html, { sourceEventId, databaseEventId, expectedTypeCount = 16 }) {
+  if (typeof html !== "string" || html.trim() === "") fail("CPP 活动页面为空");
   const embeddedMatch = html.match(/<script\b[^>]*\bid=["']cpp-snapshot-manifest["'][^>]*>([\s\S]*?)<\/script>/i);
   let sourceEventIds = [];
   let dayIds = [];
@@ -106,7 +106,7 @@ export function parseCPGEventPage(html) {
     dayIds = Array.isArray(embedded.dayIds) ? embedded.dayIds.map(String) : [];
     types = Array.isArray(embedded.types) ? embedded.types : [];
   } else {
-    sourceEventIds = currentSourceEventIds(html);
+    sourceEventIds = currentSourceEventIds(html, sourceEventId);
     dayIds = unique([
       ...Array.from(html.matchAll(/\bzEids\s*\.\s*push\s*\(\s*["']?(\d+)["']?\s*\)/g), (match) => match[1]),
       ...Array.from(html.matchAll(/\bdata-day-id=["'](\d+)["']/gi), (match) => match[1]),
@@ -123,8 +123,8 @@ export function parseCPGEventPage(html) {
   }
 
   const eventIds = unique(sourceEventIds.filter(Boolean));
-  if (eventIds.length !== 1 || eventIds[0] !== CPG_SOURCE_EVENT_ID) {
-    fail(`CPG source event 门禁失败：期望 ${CPG_SOURCE_EVENT_ID}，实际 ${eventIds.join(",") || "未发现"}`);
+  if (eventIds.length !== 1 || eventIds[0] !== sourceEventId) {
+    fail(`CPP source event 门禁失败：期望 ${sourceEventId}，实际 ${eventIds.join(",") || "未发现"}`);
   }
   const days = unique(dayIds.map(String).filter(Boolean));
   if (
@@ -143,16 +143,24 @@ export function parseCPGEventPage(html) {
     if (typeMap.has(id)) fail(`CPG 分类 ID ${id} 重复`);
     typeMap.set(id, name);
   }
-  if (typeMap.size !== CPG_EXPECTED_TYPE_COUNT) {
-    fail(`CPG 分类门禁失败：期望 ${CPG_EXPECTED_TYPE_COUNT}，实际 ${typeMap.size}`);
+  if (typeMap.size !== expectedTypeCount) {
+    fail(`CPP 分类门禁失败：期望 ${expectedTypeCount}，实际 ${typeMap.size}`);
   }
   const sortedTypes = [...typeMap].map(([id, name]) => ({ id, name })).sort((a, b) => a.id - b.id);
   return {
-    internalEventId: CPG_DATABASE_EVENT_ID,
-    sourceEventId: CPG_SOURCE_EVENT_ID,
+    internalEventId: databaseEventId,
+    sourceEventId,
     dayIds: days,
     types: sortedTypes,
   };
+}
+
+export function parseCPGEventPage(html) {
+  return parseCPPEventPage(html, {
+    sourceEventId: CPG_SOURCE_EVENT_ID,
+    databaseEventId: CPG_DATABASE_EVENT_ID,
+    expectedTypeCount: CPG_EXPECTED_TYPE_COUNT,
+  });
 }
 
 export function createCPPRequestController({

@@ -215,6 +215,15 @@ export default function ExhibitDetail() {
   const imageProcessing = Object.keys(imageProgressByItem).length > 0;
 
   useEffect(() => {
+    document.body.dataset.manualOffline = String(manualOffline);
+    window.dispatchEvent(new Event("cp-list-offline-mode"));
+    return () => {
+      delete document.body.dataset.manualOffline;
+      window.dispatchEvent(new Event("cp-list-offline-mode"));
+    };
+  }, [manualOffline]);
+
+  useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get("edit") !== "1") return;
 
@@ -419,6 +428,11 @@ export default function ExhibitDetail() {
       console.error(`更新失败 [${field}=${value}]:`, error);
       alert("更新失败: " + (error as Error).message);
     }
+  };
+
+  const handleMobileUpdateItem = async (id: string, field: keyof WishItem, value: any) => {
+    const saved = await updateItem(id, { [field]: value });
+    if (!saved) throw new Error("未能保存该制品，请重试");
   };
 
   const handleDraftItem = (id: string, field: keyof WishItem, value: any) => {
@@ -1261,7 +1275,7 @@ export default function ExhibitDetail() {
           <MobileTableView
             eventId={eventId}
             items={items}
-            onUpdateItem={handleUpdateItem}
+            onUpdateItem={handleMobileUpdateItem}
             onSaveItem={handleSaveMobileItem}
             onRemoveItem={handleRemoveItem}
             manualOffline={manualOffline}

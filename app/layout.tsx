@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Noto_Sans_SC } from "next/font/google";
 import { PageViewTracker } from "@/components/PageViewTracker";
+import { VersionUpdateNotice } from "@/components/VersionUpdateNotice";
 import "./globals.css";
 
 const notoSansSC = Noto_Sans_SC({
@@ -28,6 +29,7 @@ export default function RootLayout({
     <html lang="zh-CN" className={notoSansSC.variable}>
       <body>
         <PageViewTracker />
+        <VersionUpdateNotice />
         {children}
       </body>
     </html>

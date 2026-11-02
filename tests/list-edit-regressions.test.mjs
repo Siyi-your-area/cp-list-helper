@@ -57,7 +57,7 @@ test("mobile first image upload is saved with the complete drawer draft", () => 
   assert.match(mobile, /onSaveItem: \(item: WishItem\) => Promise<WishItem>/);
   assert.match(mobile, /uploadWishItemImage\(eventId, file, setImageUploadProgress\)/);
   assert.match(mobile, /handleDrawerUpdate\("imageUrl", uploadedUrl\)/);
-  assert.match(mobile, /await onSaveItem\(drawerItem\);\s*setDrawerItem\(null\);\s*setDrawerEditing\(false\);/);
+  assert.match(mobile, /await onSaveItem\(drawerItem\);\s*finishSave\(offline\);\s*setDrawerItem\(null\);\s*setDrawerEditing\(false\);/);
   assert.match(page, /const savedItems = await saveItemDrafts\(\[normalizedItem\]\);/);
   assert.match(page, /return savedItem;/);
 });
@@ -66,14 +66,14 @@ test("mobile replacement image can select the same file and adopts the new saved
   const mobile = read("components/MobileTableView.tsx");
 
   assert.match(mobile, /e\.target\.value = ""/);
-  assert.match(mobile, /await onSaveItem\(drawerItem\);\s*setDrawerItem\(null\);/);
+  assert.match(mobile, /await onSaveItem\(drawerItem\);\s*finishSave\(offline\);\s*setDrawerItem\(null\);/);
 });
 
 test("mobile drawer closes after a successful save", () => {
   const source = read("components/MobileTableView.tsx");
 
-  assert.match(source, /await onSaveItem\(drawerItem\);\s*setDrawerItem\(null\);\s*setDrawerEditing\(false\);\s*setDetailsExpanded\(false\);/);
-  assert.match(source, /catch \(error\) \{\s*alert\("保存失败:/);
+  assert.match(source, /await onSaveItem\(drawerItem\);\s*finishSave\(offline\);\s*setDrawerItem\(null\);\s*setDrawerEditing\(false\);\s*setDetailsExpanded\(false\);/);
+  assert.match(source, /catch \(error\) \{\s*failSave\(error\);/);
 });
 
 test("mobile add button enters edit mode and opens the add-item dialog", () => {
@@ -133,7 +133,7 @@ test("storage uploader reports network percentages and every image entry point d
   assert.match(detail, /<ImageUploadProgress percent=\{uploadProgress\} compact \/>/);
   assert.match(detail, /disabled=\{savingEdits \|\| imageProcessing\}/);
   assert.match(mobile, /<ImageUploadProgress percent=\{imageUploadProgress\} \/>/);
-  assert.match(mobile, /disabled=\{imageUploadProgress !== null\}/);
+  assert.match(mobile, /disabled=\{imageUploadProgress !== null \|\| savePhase === "saving"\}/);
   assert.match(addDialog, /<ImageUploadProgress percent=\{imageUploadProgress\} \/>/);
   assert.match(addDialog, /disabled=\{submitting \|\| imageUploadProgress !== null\}/);
   assert.match(progress, /\{percent\}%/);

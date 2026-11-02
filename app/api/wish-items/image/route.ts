@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, createServiceRoleClient } from "@/lib/supabase-server";
+import { WISH_ITEM_UPLOAD_MAX_BYTES } from "@/lib/wish-item-image-policy";
 
 const BUCKET = "wish-item-images";
-const MAX_BYTES = 5 * 1024 * 1024;
 const MIME_EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -23,8 +23,8 @@ export async function POST(request: NextRequest) {
     if (!extension) {
       return NextResponse.json({ error: "仅支持 JPG、PNG 和 WebP 图片。" }, { status: 400 });
     }
-    if (file.size <= 0 || file.size > MAX_BYTES) {
-      return NextResponse.json({ error: "图片大小不能超过 5MB。" }, { status: 400 });
+    if (file.size <= 0 || file.size > WISH_ITEM_UPLOAD_MAX_BYTES) {
+      return NextResponse.json({ error: "上传图片不能超过 350 KB，请压缩后重试。" }, { status: 400 });
     }
 
     const { data: membership, error: membershipError } = await client

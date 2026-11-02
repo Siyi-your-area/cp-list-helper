@@ -1,60 +1,10 @@
 "use client";
 
 import { ensureAnonymousSession } from "@/lib/auth-client";
+import { compressImage } from "@/lib/wish-item-image-compression";
+import { WISH_ITEM_IMAGE_MAX_BYTES, WISH_ITEM_UPLOAD_MAX_BYTES } from "@/lib/wish-item-image-policy";
 
-export const WISH_ITEM_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-
-const IMAGE_TARGET_BYTES = 350 * 1024;
-
-export async function compressImage(file: File): Promise<File> {
-  if (file.size <= IMAGE_TARGET_BYTES) return file;
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("图片无法读取，请换一张重试。"));
-      image.src = objectUrl;
-    });
-
-    const canvas = document.createElement("canvas");
-    let smallest: Blob | null = null;
-    let outputType = "image/webp";
-    for (const [maxEdge, quality] of [[1600, 0.8], [1280, 0.72], [1024, 0.66]] as const) {
-      const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("当前浏览器无法压缩图片，请换用其他浏览器重试。");
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-      let encoded = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob(resolve, outputType, quality);
-      });
-      if (outputType === "image/webp" && encoded?.type !== "image/webp") {
-        // Keep JPEG or PNG (including transparency) on browsers without WebP encoding.
-        outputType = file.type;
-        encoded = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob(resolve, outputType, quality);
-        });
-      }
-      if (!encoded || encoded.type !== outputType) return file;
-      if (!smallest || encoded.size < smallest.size) smallest = encoded;
-      if (encoded.size <= IMAGE_TARGET_BYTES) break;
-    }
-
-    if (!smallest || smallest.size >= file.size) return file;
-    const extension = outputType === "image/webp" ? "webp" : outputType === "image/png" ? "png" : "jpg";
-    return new File([smallest], `${file.name.replace(/\.[^.]+$/, "")}.${extension}`, {
-      type: outputType,
-      lastModified: file.lastModified,
-    });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
+export { WISH_ITEM_IMAGE_MAX_BYTES } from "@/lib/wish-item-image-policy";
 
 export async function uploadWishItemImage(
   eventId: string,
@@ -62,7 +12,9 @@ export async function uploadWishItemImage(
   onProgress?: (percent: number) => void
 ): Promise<string> {
   onProgress?.(0);
+  if (file.size > WISH_ITEM_IMAGE_MAX_BYTES) throw new Error("图片大小不能超过 5 MB。");
   const uploadFile = await compressImage(file);
+  if (uploadFile.size > WISH_ITEM_UPLOAD_MAX_BYTES) throw new Error("图片压缩后仍超过 350 KB，请裁剪后重试。");
   const session = await ensureAnonymousSession();
   const formData = new FormData();
   formData.append("eventId", eventId);

@@ -72,18 +72,24 @@ function offlineImage() {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  const cacheable = event.request.mode === "navigate"
-    || event.request.destination === "image"
-    || (url.origin === self.location.origin && url.pathname.startsWith("/_next/"));
+  const isListRoute = (path) => /^\/exhibit\/[^/]+\/?$/.test(path);
+  const isListNavigation = event.request.mode === "navigate"
+    && url.origin === self.location.origin && isListRoute(url.pathname);
+  const referrer = event.request.referrer ? new URL(event.request.referrer) : null;
+  const fromList = referrer?.origin === self.location.origin && isListRoute(referrer.pathname);
+  const cacheable = isListNavigation || (fromList && (
+    event.request.destination === "image"
+    || (url.origin === self.location.origin && url.pathname.startsWith("/_next/"))
+  ));
   if (!cacheable) return;
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const offlineRoute = await manualOfflineRoute(cache);
-    if (offlineRoute) {
+    if (offlineRoute && (!isListNavigation || new URL(offlineRoute, self.location.origin).pathname === url.pathname)) {
       const cached = await cache.match(event.request);
       if (cached) return cached;
-      if (event.request.mode === "navigate") {
+      if (isListNavigation) {
         const routeResponse = await cache.match(offlineRoute);
         if (routeResponse) return routeResponse;
       }

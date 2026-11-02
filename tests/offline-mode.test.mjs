@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 import { findOfflineConflicts, mergeOfflineDrafts } from "../lib/offline-list.ts";
 import { prepareOfflinePageCache } from "../lib/offline-page-cache.ts";
@@ -74,11 +75,38 @@ test("手机版用离线入口替换编辑入口，离线时停用新增删除�
 
 test("手动离线 Service Worker 优先读缓存，不会在弱网中自动重试", async () => {
   const worker = await readFile(new URL("../public/offline-list-sw.js", import.meta.url), "utf8");
-  const offlineBranch = worker.slice(worker.indexOf("if (offlineRoute)"), worker.indexOf("try {", worker.indexOf("if (offlineRoute)")));
+  const start = worker.indexOf("if (offlineRoute &&");
+  const offlineBranch = worker.slice(start, worker.indexOf("try {", start));
 
   assert.match(offlineBranch, /cache\.match/);
   assert.doesNotMatch(offlineBranch, /fetch\(/);
   assert.match(worker, /SET_MANUAL_OFFLINE/);
+});
+
+test("离线页面缓存仅作用于清单详情，首页和其他清单不读旧页面", async () => {
+  const worker = await readFile(new URL("../public/offline-list-sw.js", import.meta.url), "utf8");
+  assert.match(worker, /const isListRoute = \(path\) =>/);
+  assert.match(worker, /const cacheable = isListNavigation \|\| \(fromList/);
+  assert.match(worker, /if \(!cacheable\) return/);
+  assert.match(worker, /new URL\(offlineRoute, self\.location\.origin\)\.pathname === url\.pathname/);
+});
+
+test("首页请求即使被离线 Worker 控制，也交给浏览器正常获取", async () => {
+  const worker = await readFile(new URL("../public/offline-list-sw.js", import.meta.url), "utf8");
+  const handlers = new Map();
+  vm.runInNewContext(worker, {
+    self: {
+      location: { origin: "https://example.test" },
+      addEventListener: (name, handler) => handlers.set(name, handler),
+    },
+    URL,
+  });
+  let intercepted = false;
+  handlers.get("fetch")({
+    request: { method: "GET", url: "https://example.test/", mode: "navigate", referrer: "" },
+    respondWith: () => { intercepted = true; },
+  });
+  assert.equal(intercepted, false);
 });
 
 test("离线准备会收集当前页面引用的脚本与样式", async () => {

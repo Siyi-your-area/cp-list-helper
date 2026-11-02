@@ -29,7 +29,7 @@ import { uploadWishItemImage, WISH_ITEM_IMAGE_MAX_BYTES } from "@/lib/wish-item-
 interface MobileTableViewProps {
   eventId: string;
   items: WishItem[];
-  onUpdateItem: (id: string, field: keyof WishItem, value: any) => void;
+  onUpdateItem: (id: string, field: keyof WishItem, value: any) => Promise<void>;
   onSaveItem: (item: WishItem) => Promise<WishItem>;
   onRemoveItem: (id: string) => void | Promise<void>;
   manualOffline?: boolean;
@@ -39,6 +39,7 @@ type FilterMode = "all" | "unpurchased";
 type SortMode = "default" | "priority" | "hot";
 
 const PRIORITY_OPTIONS: Priority[] = ["首摊", "次摊", "P1", "P2", "P3", "随缘"];
+type SavePhase = "idle" | "saving" | "cloud" | "local" | "error";
 
 // ============================================================
 // 状态循环逻辑
@@ -99,8 +100,15 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
   const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
   const [completingBoothKey, setCompletingBoothKey] = useState<string | null>(null);
+  const [savePhase, setSavePhase] = useState<SavePhase>("idle");
+  const [saveError, setSaveError] = useState("");
+  const savingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const swipeStartRef = useRef<{ id: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!manualOffline && savePhase === "local") setSavePhase("cloud");
+  }, [manualOffline, savePhase]);
 
   // ---- 过滤 + 排序 ----
 
@@ -191,11 +199,36 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
 
   // ---- 状态切换 ----
 
-  const handleStatusCycle = (item: WishItem) => {
+  const beginSave = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaveError("");
+    setSavePhase("saving");
+    return true;
+  };
+
+  const finishSave = (offline: boolean) => {
+    setSavePhase(offline ? "local" : "cloud");
+    savingRef.current = false;
+  };
+
+  const failSave = (error: unknown) => {
+    setSaveError(error instanceof Error ? error.message : "请检查网络后重试");
+    setSavePhase("error");
+    savingRef.current = false;
+  };
+
+  const handleStatusCycle = async (item: WishItem) => {
+    if (!beginSave()) return;
     const next = getNextStatus(item.status, item.type || "paid");
-    onUpdateItem(item.id, "status", next);
-    // 更新 drawer 中的 item
-    setDrawerItem((prev) => (prev && prev.id === item.id ? { ...prev, status: next } : prev));
+    const offline = manualOffline;
+    try {
+      await onUpdateItem(item.id, "status", next);
+      setDrawerItem((prev) => (prev && prev.id === item.id ? { ...prev, status: next } : prev));
+      finishSave(offline);
+    } catch (error) {
+      failSave(error);
+    }
   };
 
   // ---- Drawer 内编辑 ----
@@ -214,8 +247,9 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
     const pendingItems = groupItems.filter(
       (item) => item.status === "pending" || item.status === "已买待取" || item.status === "待领取"
     );
-    if (pendingItems.length === 0 || completingBoothKey) return;
+    if (pendingItems.length === 0 || completingBoothKey || !beginSave()) return;
 
+    const offline = manualOffline;
     setCompletingBoothKey(groupKey);
     try {
       for (const item of pendingItems) {
@@ -224,8 +258,9 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
           status: item.type === "free" ? "已领取" : "purchased",
         });
       }
+      finishSave(offline);
     } catch (error) {
-      alert("本摊标记失败: " + (error as Error).message);
+      failSave(error);
     } finally {
       setCompletingBoothKey(null);
     }
@@ -242,14 +277,16 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
   };
 
   const handleDrawerSave = async () => {
-    if (!drawerItem) return;
+    if (!drawerItem || !beginSave()) return;
+    const offline = manualOffline;
     try {
       await onSaveItem(drawerItem);
+      finishSave(offline);
       setDrawerItem(null);
       setDrawerEditing(false);
       setDetailsExpanded(false);
     } catch (error) {
-      alert("保存失败: " + (error as Error).message);
+      failSave(error);
     }
   };
 
@@ -364,6 +401,19 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
         </div>
       </div>
 
+      {savePhase !== "idle" && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] left-1/2 z-[60] w-max max-w-[calc(100%_-_2rem)] -translate-x-1/2 rounded-full border px-4 py-2 text-center text-xs shadow-lg ${savePhase === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-slate-200 bg-white text-slate-700"}`}
+        >
+          {savePhase === "saving" && "正在保存…"}
+          {savePhase === "cloud" && "✓ 已保存到云端"}
+          {savePhase === "local" && "✓ 仅保存在本机，结束离线模式后请同步"}
+          {savePhase === "error" && `同步失败，请重试：${saveError}`}
+        </div>
+      )}
+
       {/* ---- 筛选 + 排序 ---- */}
       <div className="sticky top-0 z-20 flex items-center gap-2 overflow-x-auto border-b border-slate-100 bg-white px-3 py-2">
         <button
@@ -457,7 +507,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                       <button
                         type="button"
                         onClick={() => void handleCompleteBooth(group.key, group.items)}
-                        disabled={pendingCount === 0 || completingBoothKey !== null}
+                        disabled={pendingCount === 0 || completingBoothKey !== null || savePhase === "saving"}
                         className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap ${
                           getStatusColor(pendingCount === 0 ? "purchased" : "pending")
                         } disabled:opacity-60`}
@@ -561,8 +611,9 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleStatusCycle(item);
+                      void handleStatusCycle(item);
                     }}
+                    disabled={savePhase === "saving"}
                     className={`rounded-full px-1.5 py-1 text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}
                   >
                     {STATUS_TEXT[item.status] || item.status}
@@ -921,7 +972,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                     setDrawerEditing(true);
                   }
                 }}
-                disabled={imageUploadProgress !== null}
+                disabled={imageUploadProgress !== null || savePhase === "saving"}
                 className={`flex-1 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors disabled:cursor-wait disabled:opacity-60 ${
                   drawerEditing
                     ? "bg-green-600 text-white"

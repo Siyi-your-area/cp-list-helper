@@ -1269,9 +1269,9 @@ export default function ExhibitDetail() {
       {/* Main content area - fills remaining height */}
       {/* 手机端视图 */}
       <div className="md:hidden">
-        {eventInfo?.cppEventId === "cpfz" && <div className="flex gap-2 border-b border-slate-100 bg-white px-3 py-2" role="tablist" aria-label="清单视图切换">
-          <button type="button" role="tab" aria-selected={mobileViewMode === "list"} onClick={() => setMobileViewMode("list")} className={`min-h-11 rounded-lg px-4 text-sm font-medium ${mobileViewMode === "list" ? "bg-[#5d695d] text-white" : "bg-[#f1f2f0] text-[#4b554f]"}`}>清单</button>
-          <button type="button" role="tab" aria-selected={mobileViewMode === "map"} onClick={() => setMobileViewMode("map")} className={`min-h-11 rounded-lg px-4 text-sm font-medium ${mobileViewMode === "map" ? "bg-[#5d695d] text-white" : "bg-[#f1f2f0] text-[#4b554f]"}`}>地图找摊</button>
+        {eventInfo?.cppEventId === "cpfz" && <div className="flex gap-2 border-b border-slate-100 bg-white px-3 py-0.5" role="tablist" aria-label="清单视图切换">
+          <button type="button" role="tab" aria-selected={mobileViewMode === "list"} onClick={() => setMobileViewMode("list")} className={`min-h-11 rounded-lg px-3 text-xs font-medium ${mobileViewMode === "list" ? "bg-[#5d695d] text-white" : "bg-[#f1f2f0] text-[#4b554f]"}`}>清单</button>
+          <button type="button" role="tab" aria-selected={mobileViewMode === "map"} onClick={() => setMobileViewMode("map")} className={`min-h-11 rounded-lg px-3 text-xs font-medium ${mobileViewMode === "map" ? "bg-[#5d695d] text-white" : "bg-[#f1f2f0] text-[#4b554f]"}`}>地图找摊</button>
         </div>}
         {(eventInfo?.cppEventId !== "cpfz" || mobileViewMode === "list") && <div className="px-3 pt-3">
           <ListSummaryBar items={items} />

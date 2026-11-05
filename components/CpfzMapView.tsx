@@ -151,11 +151,10 @@ export function CpfzMapView({ items, pendingOnly, onTogglePending, onStatusCycle
   );
 
   return <div className="bg-white">
-    <div className="border-b border-slate-100 px-3 py-2">
-      <button type="button" onClick={onTogglePending} className={`rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors ${pendingOnly ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}>{pendingOnly ? "✓ 只看未买/取" : "只看未买/取"}</button>
-    </div>
-    <div className="flex gap-1.5 overflow-x-auto border-b border-slate-100 bg-white px-3 py-2">
-      {HALLS.map((option) => <button type="button" key={option} onClick={() => setHall(option)} aria-label={`${option}馆`} className={`shrink-0 rounded px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors ${hall === option ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{option}</button>)}
+    <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-100 bg-white px-3 py-1">
+      <button type="button" onClick={onTogglePending} className={`min-h-11 shrink-0 rounded-full px-2 text-xs font-medium whitespace-nowrap transition-colors ${pendingOnly ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}>{pendingOnly ? "✓ 只看未买/取" : "只看未买/取"}</button>
+
+      {HALLS.map((option) => <button type="button" key={option} onClick={() => setHall(option)} aria-label={`${option}馆`} className={`min-h-11 min-w-11 shrink-0 rounded px-2 text-xs font-medium whitespace-nowrap transition-colors ${hall === option ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{option}</button>)}
     </div>
     <div ref={viewportRef} role="application" aria-label={`${hall}馆地图，可拖动及双指缩放`} className="relative h-[min(62dvh,560px)] min-h-[350px] w-full overflow-hidden bg-[#f5f6f3]" style={{ touchAction: "none" }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd} onWheel={(event) => { event.preventDefault(); zoomAt(transform.zoom * (event.deltaY > 0 ? .85 : 1.18), event.nativeEvent.offsetX, event.nativeEvent.offsetY); }}>
       <img src={`/cpfz-map/hall-${HALL_NUMBERS[hall]}.png`} alt={`${hall}馆官方场地图`} draggable={false} onError={() => setMapError(true)} className="pointer-events-none absolute max-w-none select-none" style={{ width: imageWidth * transform.zoom, height: imageHeight * transform.zoom, left: transform.x, top: transform.y }} />

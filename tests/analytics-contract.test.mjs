@@ -5,6 +5,7 @@ import test from "node:test";
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const migration = read("docs/migrations/012_lightweight_product_metrics.sql");
 const pgcryptoFixMigration = read("docs/migrations/013_fix_product_metric_pgcrypto_search_path.sql");
+const creatorMigration = read("docs/migrations/019_track_unique_list_creators.sql");
 const route = read("app/api/analytics/page-view/route.ts");
 const tracker = read("components/PageViewTracker.tsx");
 const layout = read("app/layout.tsx");
@@ -12,7 +13,7 @@ const about = read("app/about/page.tsx");
 const report = read("docs/sql/analytics-report.sql");
 const deployment = read("docs/06-deployment.md");
 
-test("metric table stores only the approved minimal fields", () => {
+test("initial metric table stores only the approved minimal fields", () => {
   const table = migration.match(
     /create table if not exists public\.product_metric_events \(([\s\S]*?)\n\);\n\ncreate index/i,
   )?.[1] || "";
@@ -48,6 +49,21 @@ test("metric table stores only the approved minimal fields", () => {
   assert.match(table, /occurred_at timestamptz not null default now\(\)/i);
   assert.match(table, /event_name = 'page_view'[\s\S]*visitor_key is not null[\s\S]*length\(visitor_key\) = 64/i);
   assert.match(table, /event_name = 'list_created'[\s\S]*visitor_key is null/i);
+});
+
+test("creator metric stores only a domain-separated hash and backfills surviving lists", () => {
+  assert.match(creatorMigration, /alter table public\.product_metric_events\s+add column creator_key text/i);
+  assert.match(creatorMigration, /creator_key is null[\s\S]*event_name = 'list_created'[\s\S]*\[0-9a-f\]\{64\}/i);
+  assert.match(creatorMigration, /if new\.role is distinct from 'owner' then[\s\S]*return new/i);
+  assert.match(creatorMigration, /security definer[\s\S]*set search_path = public, extensions, pg_temp/i);
+  assert.match(creatorMigration, /extensions\.digest\('list_creator:' \|\| new\.user_id::text, 'sha256'\)/i);
+  assert.match(creatorMigration, /values \(v_metric_id, 'list_created', null, v_creator_key\)/i);
+  assert.match(creatorMigration, /on conflict \(id\) do nothing/i);
+  assert.match(creatorMigration, /from public\.events e[\s\S]*where e\.created_by is not null/i);
+  assert.match(creatorMigration, /update public\.product_metric_events metric[\s\S]*metric\.creator_key is null/i);
+  assert.match(creatorMigration, /revoke all privileges on function public\.record_list_created_metric\(\)/i);
+  assert.doesNotMatch(creatorMigration, /add column (?:user_id|raw_user_id)\b|grant execute|create policy/i);
+  assert.match(creatorMigration, /begin\s*;[\s\S]*commit\s*;/i);
 });
 
 test("metric table is closed and indexed without an RLS policy", () => {
@@ -177,6 +193,8 @@ test("about page discloses metric scope, retention and exclusions", () => {
   assert.match(about, /页面访问量（PV）/);
   assert.match(about, /匿名身份访问量（UV）/);
   assert.match(about, /成功创建list/);
+  assert.match(about, /创建者匿名身份去重数/);
+  assert.match(about, /不保存原始用户 ID/);
   assert.match(about, /保留90天/);
   assert.match(about, /不保存IP、list识别码或内容、上传文件名、搜索和编辑输入/);
   assert.match(about, /不等同于自然人数，也不表示完全匿名/);
@@ -189,6 +207,9 @@ test("analytics report is read-only and uses the approved 30-day metrics", () =>
   assert.match(report, /count\(\*\) filter \(where metric\.event_name = 'page_view'\)/i);
   assert.match(report, /count\(distinct metric\.visitor_key\)[\s\S]*event_name = 'page_view'/i);
   assert.match(report, /count\(\*\) filter \(where metric\.event_name = 'list_created'\)/i);
+  assert.match(report, /count\(distinct metric\.creator_key\)[\s\S]*event_name = 'list_created'/i);
+  assert.match(report, /cumulative_pv[\s\S]*cumulative_uv[\s\S]*cumulative_list_created[\s\S]*cumulative_list_creator_uv/i);
+  assert.match(report, /list_creations_without_creator/i);
   assert.match(report, /不回填 012 上线前的历史数据/);
   assert.match(report, /不等同于自然人数/);
   assert.match(report, /rollback\s*;\s*$/i);

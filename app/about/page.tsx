@@ -164,8 +164,8 @@ export default function AboutPage() {
         <section className="ui-surface px-5 py-5 text-sm leading-7 text-slate-600 sm:px-6">
           <h2 className="mb-2 font-semibold text-slate-900">访问统计与隐私</h2>
           <p>
-            我们仅统计页面访问量（PV）、匿名身份访问量（UV）和成功创建list的次数，
-            用于了解工具的使用情况。UV 基于匿名身份去重，不等同于自然人数，也不表示完全匿名。
+            我们仅统计页面访问量（PV）、匿名身份访问量（UV）、成功创建list的次数和创建者匿名身份去重数，
+            用于了解工具的使用情况。去重使用不可逆摘要，不保存原始用户 ID；统计结果不等同于自然人数，也不表示完全匿名。
           </p>
           <p className="mt-2">
             访问统计不保存IP、list识别码或内容、上传文件名、搜索和编辑输入。

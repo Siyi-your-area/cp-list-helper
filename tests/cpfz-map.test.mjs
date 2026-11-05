@@ -160,10 +160,12 @@ test("地图容器宽度变化时保持当前缩放和地图中心，不重置�
   assert.ok(Math.abs(resized.y + 0.6 * next.imageHeight * resized.zoom - next.height / 2) < 1e-8);
 });
 
-test("地图筛选和场馆按钮沿用清单模式的小号胶囊与标签样式", () => {
+test("地图筛选和场馆按钮在同一紧凑行，保留清单模式标签风格", () => {
   const map = readFileSync(new URL("../components/CpfzMapView.tsx", import.meta.url), "utf8");
-  assert.match(map, /rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors/);
-  assert.match(map, /rounded px-2\.5 py-1 text-xs font-medium whitespace-nowrap transition-colors/);
+  assert.match(map, /flex items-center gap-1 overflow-x-auto border-b border-slate-100 bg-white px-3 py-1/);
+  assert.match(map, /rounded-full px-2 text-xs font-medium whitespace-nowrap transition-colors/);
+  assert.match(map, /rounded px-2 text-xs font-medium whitespace-nowrap transition-colors/);
+  assert.match(map, /h-\[min\(62dvh,560px\)\] min-h-\[350px\]/);
   assert.doesNotMatch(map, /\{option\}馆<\/button>/);
 });
 

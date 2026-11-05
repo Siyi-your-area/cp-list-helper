@@ -186,6 +186,7 @@ export default function ExhibitDetail() {
 
   const [searchKeyword, setSearchKeyword] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const [mobileViewMode, setMobileViewMode] = useState<"list" | "map">("list");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isAddItemDialogOpen, setIsAddItemDialogOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1268,13 +1269,18 @@ export default function ExhibitDetail() {
       {/* Main content area - fills remaining height */}
       {/* 手机端视图 */}
       <div className="md:hidden">
-        <div className="px-3 pt-3">
+        {eventInfo?.cppEventId === "cpfz" && <div className="flex gap-2 border-b border-slate-100 bg-white px-3 py-2" role="tablist" aria-label="清单视图切换">
+          <button type="button" role="tab" aria-selected={mobileViewMode === "list"} onClick={() => setMobileViewMode("list")} className={`min-h-11 rounded-lg px-4 text-sm font-medium ${mobileViewMode === "list" ? "bg-[#5d695d] text-white" : "bg-[#f1f2f0] text-[#4b554f]"}`}>清单</button>
+          <button type="button" role="tab" aria-selected={mobileViewMode === "map"} onClick={() => setMobileViewMode("map")} className={`min-h-11 rounded-lg px-4 text-sm font-medium ${mobileViewMode === "map" ? "bg-[#5d695d] text-white" : "bg-[#f1f2f0] text-[#4b554f]"}`}>地图找摊</button>
+        </div>}
+        {(eventInfo?.cppEventId !== "cpfz" || mobileViewMode === "list") && <div className="px-3 pt-3">
           <ListSummaryBar items={items} />
-        </div>
+        </div>}
         <div>
           <MobileTableView
             eventId={eventId}
             items={items}
+            mode={eventInfo?.cppEventId === "cpfz" ? mobileViewMode : "list"}
             onUpdateItem={handleMobileUpdateItem}
             onSaveItem={handleSaveMobileItem}
             onRemoveItem={handleRemoveItem}

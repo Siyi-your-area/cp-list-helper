@@ -21,6 +21,8 @@ import {
 } from "@/lib/wish-item-sort";
 import { ImageUploadProgress } from "@/components/ImageUploadProgress";
 import { uploadWishItemImage, WISH_ITEM_IMAGE_MAX_BYTES } from "@/lib/wish-item-image-upload";
+import { CpfzMapView } from "@/components/CpfzMapView";
+import { getStatusColor } from "@/components/mobile-wish-style";
 
 // ============================================================
 // 类型
@@ -33,6 +35,7 @@ interface MobileTableViewProps {
   onSaveItem: (item: WishItem) => Promise<WishItem>;
   onRemoveItem: (id: string) => void | Promise<void>;
   manualOffline?: boolean;
+  mode?: "list" | "map";
 }
 
 type FilterMode = "all" | "unpurchased";
@@ -63,31 +66,11 @@ function getArea(boothNumber: string): string {
   return getWishItemVenue({ boothNumber }) || "其他";
 }
 
-/**
- * 状态颜色 — 直接返回 Tailwind class（JIT 可检测）
- */
-function getStatusColor(status: string): string {
-  switch (status) {
-    case "pending":
-    case "待领取":
-      return "bg-amber-100 text-amber-900 ring-1 ring-inset ring-amber-300";
-    case "已买待取":
-      return "bg-violet-100 text-violet-900 ring-1 ring-inset ring-violet-300";
-    case "purchased":
-    case "已领取":
-      return "bg-emerald-100 text-emerald-900 ring-1 ring-inset ring-emerald-300";
-    case "soldout":
-      return "bg-rose-100 text-rose-900 ring-1 ring-inset ring-rose-300";
-    default:
-      return "bg-slate-100 text-slate-600";
-  }
-}
-
 // ============================================================
 // 组件
 // ============================================================
 
-export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRemoveItem, manualOffline = false }: MobileTableViewProps) {
+export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRemoveItem, manualOffline = false, mode = "list" }: MobileTableViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [sortMode, setSortMode] = useState<SortMode>("default");
@@ -229,6 +212,13 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
     } catch (error) {
       failSave(error);
     }
+  };
+
+  const openDrawerItem = (item: WishItem) => {
+    setDrawerItem(item);
+    setQuantityInput(String(item.quantity ?? 1));
+    setDrawerEditing(true);
+    setDetailsExpanded(false);
   };
 
   // ---- Drawer 内编辑 ----
@@ -379,8 +369,18 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
 
   return (
     <div>
+      {mode === "map" && <CpfzMapView
+        items={items}
+        pendingOnly={filterMode === "unpurchased"}
+        onTogglePending={() => setFilterMode(filterMode === "all" ? "unpurchased" : "all")}
+        onStatusCycle={(item) => void handleStatusCycle(item)}
+        onBoothComplete={(key, boothItems) => void handleCompleteBooth(key, boothItems)}
+        onOpenItem={openDrawerItem}
+        saving={savePhase === "saving"}
+        completingBoothKey={completingBoothKey}
+      />}
       {/* ---- 搜索栏 ---- */}
-      <div className="border-b border-slate-200 bg-white px-3 pt-3 pb-2">
+      {mode === "list" && <div className="border-b border-slate-200 bg-white px-3 pt-3 pb-2">
         <div className="relative">
           <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -399,7 +399,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
             </button>
           )}
         </div>
-      </div>
+      </div>}
 
       {savePhase !== "idle" && (
         <div
@@ -415,6 +415,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
       )}
 
       {/* ---- 筛选 + 排序 ---- */}
+      {mode === "list" && <>
       <div className="sticky top-0 z-20 flex items-center gap-2 overflow-x-auto border-b border-slate-100 bg-white px-3 py-2">
         <button
           onClick={() => setFilterMode(filterMode === "all" ? "unpurchased" : "all")}
@@ -551,10 +552,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
                       setSwipedItemId(null);
                       return;
                     }
-                    setDrawerItem(item);
-                    setQuantityInput(String(item.quantity ?? 1));
-                    setDrawerEditing(true);
-                    setDetailsExpanded(false);
+                    openDrawerItem(item);
                   }}
                   className={`relative z-10 flex items-center bg-white active:bg-slate-50 transition-transform duration-200 ${
                     swipedItemId === item.id ? "-translate-x-20" : "translate-x-0"
@@ -640,6 +638,7 @@ export function MobileTableView({ eventId, items, onUpdateItem, onSaveItem, onRe
           待买/取 {items.filter((i) => i.status === "pending" || i.status === "已买待取" || i.status === "待领取").length}
         </span>
       </div>
+      </>}
 
       {/* ============================================================ */}
       {/* ---- 底部抽屉 ---- */}

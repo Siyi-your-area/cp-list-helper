@@ -1,9 +1,10 @@
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+import { getAppBuildVersion } from "./lib/app-build-version.mjs";
 
 /** @type {import("next").NextConfig} */
 const nextConfig = {
   env: {
-    NEXT_PUBLIC_APP_BUILD_VERSION: new Date().toISOString(),
+    NEXT_PUBLIC_APP_BUILD_VERSION: getAppBuildVersion(),
   },
 };
 

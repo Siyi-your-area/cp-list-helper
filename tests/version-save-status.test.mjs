@@ -1,15 +1,23 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { getAppBuildVersion } from "../lib/app-build-version.mjs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("版本接口不缓存，首页的版本提示不会自动刷新", () => {
   assert.match(read("app/api/version/route.ts"), /force-dynamic/);
   assert.match(read("app/api/version/route.ts"), /no-store/);
+  const config = read("next.config.mjs");
+  assert.match(config, /NEXT_PUBLIC_APP_BUILD_VERSION: getAppBuildVersion\(\)/);
+  assert.doesNotMatch(config, /new Date\(\)/);
+  assert.match(getAppBuildVersion(), /^[a-f0-9]{16}$/);
+  assert.equal(getAppBuildVersion(), getAppBuildVersion());
   const component = read("components/VersionUpdateNotice.tsx");
   assert.match(component, /新版本已就绪，点击刷新/);
-  assert.match(component, /onClick=\{\(\) => window\.location\.reload\(\)\}/);
+  assert.match(component, /setNewVersionReady\(result\.version !== CURRENT_VERSION\)/);
+  assert.match(component, /url\.searchParams\.set\("app-version", latestVersion\)/);
+  assert.match(component, /onClick=\{refreshToLatest\}/);
   assert.match(component, /manualOffline/);
 });
 
